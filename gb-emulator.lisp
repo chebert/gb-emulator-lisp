@@ -112,6 +112,10 @@
 ;;  Input
 ;;  Sound
 
+(defmacro defvars (&body var-names)
+  `(progn
+     ,@ (mapcar (lambda (v) `(defvar ,v)) var-names)))
+
 (defun file-bytes (filename)
   (with-open-file (stream filename :element-type '(unsigned-byte 8))
     (let ((v (make-array (file-length stream) :element-type '(unsigned-byte 8))))
@@ -123,21 +127,95 @@
 	       "test-roms/cpu_instrs/individual/01-special.gb"
 	       :gb-emulator)))
 
+(defun bios ()
+  (file-bytes (modest-pathnames:application-file-pathname
+	       "bios.gb"
+	       :gb-emulator)))
+
 (modest-functional:defrecord disassembled-instr
   name
   size)
 
+(defun kb (b) (* 1024 b))
+(defun memory (b)
+  (make-array b :element-type '(unsigned-byte 8)))
+
 ;; CPU
-(defvar *pc* 0)
-(defvar *sp* 0)
-(defvar *a* 0)
-(defvar *b* 0)
-(defvar *c* 0)
-(defvar *d* 0)
-(defvar *e* 0)
-(defvar *f* 0)
-(defvar *h* 0)
-(defvar *l* 0)
+(defvars
+  *pc* *sp*
+  *a* *b*
+  *c* *d*
+  *e* *f*
+  *h* *l*
+
+  ;; Memory Regions
+  *bank0-rom*
+  *bank1-rom*
+  *video-ram*
+  *ext-ram*
+  *work-ram*
+  *sprite-ram*
+  *mmap-i/o*
+  *z-ram* ;; zero-page (page 255) RAM
+  )
+
+(defun load-bios! ()
+  (setf (subseq *bank0-rom* 0) (bios)))
+
+(defun init-memory-regions! ()
+  (setq *bank0-rom* (memory (kb 16))
+	*bank1-rom* (memory (kb 16))
+	*video-ram* (memory (kb 8))
+	*ext-ram* (memory (kb 8))
+	*work-ram* (memory (kb 8))
+	*sprite-ram* (memory 160)
+	*mmap-i/o* (memory 128)
+	*z-ram* (memory 128)))
+
+(defun mem-byte (addr)
+  (cond
+    ((< addr #x4000)
+     ;; bank0
+     (aref *bank0-rom* addr))
+    ((< addr #x8000)
+     ;; bank1
+     (aref *bank1-rom* (- addr #x4000)))
+    ((< addr #xa000)
+     ;; vram
+     (aref *video-ram* (- addr #x8000)))
+    ((< addr #xc000)
+     ;; eram
+     (aref *ext-ram* (- addr #xa000)))
+    ((< addr #xe000)
+     ;; wram
+     (aref *work-ram* (- addr #xc000)))
+    ((< addr #xfe00)
+     ;; wram (copy)
+     (aref *work-ram* (- addr #xe000)))
+    ((< addr #xff00)
+     ;; sprites
+     (aref *sprite-ram* (- addr #xfe00)))
+    ((< addr #xff80)
+     ;; mmap-io
+     (aref *mmap-i/o* (- addr #xff00)))
+    (t
+     ;; zram
+     (aref *z-ram* (- addr #xff80)))))
+
+(defun init! ()
+  (setq *pc* 0)
+  (setq *sp* 0)
+  (setq *a* 0)
+  (setq *b* 0)
+  (setq *c* 0)
+  (setq *d* 0)
+  (setq *e* 0)
+  (setq *f* 0)
+  (setq *h* 0)
+  (setq *l* 0)
+  (init-memory-regions!)
+  (load-bios!)
+  :done)
 
 (defun carry-set! () (setq *f* (logior #x10 *f*)))
 (defun carry-clear! () (setq *f* (logand (lognot #x10) *f*)))
@@ -151,18 +229,23 @@
 (defun zero-set! () (setq *f* (logior #x80 *f*)))
 (defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
 
+(defun mem-pc-byte ()
+  (mem-byte *pc*))
+
+;; TODO: Categorize instructions
+
 (defvar *disassembled-instr*)
 ;; Disassemble&Implement instructions
 (defun exec-instr! ()
-  (let ((b1 (elt rom-bytes 0)))
-    (case b1
-      (#x0
-       (let* ((name :nop)
-	      (size 1))
-	 (setq *disassembled-instr* (make-disassembled-instr :nop 1))))
+  (let ((b1 (mem-pc-byte)))
+    (cond
+      (#x00
+       (let ((size 1))
+	 (setq *disassembled-instr* (make-disassembled-instr :nop size))
+	 (incf *pc* size)))
       (t (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 		(logand (ash b1 -4) #xf)
 		(logand b1 #xf)
 		b1)))))
 
-(disassemble-instr (gb-cpu-instrs-special))
+(exec-instr!)
