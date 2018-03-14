@@ -75,9 +75,94 @@
 ;; Background: 256x256 pixels or 32x32 tiles (8x8 each)
 ;; Resolution: 160x144 pixels
 ;; Scroll-x, Scroll-y: coordinates of the background to be displayed in the upper left
-;; ... TODO
+;; Background Tile Map (In VRAM): 32 rows of 32 bytes, each byte is a tile idx
+;; Window: window-pos-x window-pos-y control location of the window
+;; Tile Data: 8x8 image in 16 bytes
+;; Sprites..
+
+;;; Interrupts
+;; enabled or disabled
+;; interrupt Procedure:
+;;    1. When an interrupt is generated, the IF flag will be set.
+;;    2. If the IME flag is set & the corresponding IE flag is set, the following 3 steps are performed.
+;;       3. Reset the IME flag and prevent all interrupts.
+;;       4. The PC (program counter) is pushed onto the stack.
+;;       5. Jump to the starting address of the interrupt.
 
 
+;; Plan of attack
+;;  We need:
+;;    CPU
+;;    video
+;;    sound
+;;    timer
+;;    input
+;; In Order:
+;;  CPU:
+;;    load blargg tests
+;;    dis-assemble instructions
+;;    display:
+;;        registers
+;;        previous/this/next instruction
+;;        memory: stack
+;;        specified memory region
+;;    implement instructions (switch statement)
+;;  Video
+;;  Timer
+;;  Input
+;;  Sound
 
+(defun file-bytes (filename)
+  (with-open-file (stream filename :element-type '(unsigned-byte 8))
+    (let ((v (make-array (file-length stream) :element-type '(unsigned-byte 8))))
+      (read-sequence v stream)
+      v)))
 
+(defun gb-cpu-instrs-special ()
+  (file-bytes (modest-pathnames:application-file-pathname
+	       "test-roms/cpu_instrs/individual/01-special.gb"
+	       :gb-emulator)))
 
+(modest-functional:defrecord disassembled-instr
+  name
+  size)
+
+;; CPU
+(defvar *pc* 0)
+(defvar *sp* 0)
+(defvar *a* 0)
+(defvar *b* 0)
+(defvar *c* 0)
+(defvar *d* 0)
+(defvar *e* 0)
+(defvar *f* 0)
+(defvar *h* 0)
+(defvar *l* 0)
+
+(defun carry-set! () (setq *f* (logior #x10 *f*)))
+(defun carry-clear! () (setq *f* (logand (lognot #x10) *f*)))
+
+(defun half-carry-set! () (setq *f* (logior #x20 *f*)))
+(defun half-carry-clear! () (setq *f* (logand (lognot #x20) *f*)))
+
+(defun subtract-set! () (setq *f* (logior #x40 *f*)))
+(defun subtract-clear! () (setq *f* (logand (lognot #x40) *f*)))
+
+(defun zero-set! () (setq *f* (logior #x80 *f*)))
+(defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
+
+(defvar *disassembled-instr*)
+;; Disassemble&Implement instructions
+(defun exec-instr! ()
+  (let ((b1 (elt rom-bytes 0)))
+    (case b1
+      (#x0
+       (let* ((name :nop)
+	      (size 1))
+	 (setq *disassembled-instr* (make-disassembled-instr :nop 1))))
+      (t (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
+		(logand (ash b1 -4) #xf)
+		(logand b1 #xf)
+		b1)))))
+
+(disassemble-instr (gb-cpu-instrs-special))
