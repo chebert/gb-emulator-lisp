@@ -203,6 +203,36 @@
      ;; zram
      (aref *z-ram* (- addr #xff80)))))
 
+(defun mem-byte-set! (addr byte)
+  (cond
+    ((< addr #x4000)
+     ;; bank0
+     (setf (aref *bank0-rom* addr) byte))
+    ((< addr #x8000)
+     ;; bank1
+     (setf (aref *bank1-rom* (- addr #x4000)) byte))
+    ((< addr #xa000)
+     ;; vram
+     (setf (aref *video-ram* (- addr #x8000)) byte))
+    ((< addr #xc000)
+     ;; eram
+     (setf (aref *ext-ram* (- addr #xa000)) byte))
+    ((< addr #xe000)
+     ;; wram
+     (setf (aref *work-ram* (- addr #xc000)) byte))
+    ((< addr #xfe00)
+     ;; wram (copy)
+     (setf (aref *work-ram* (- addr #xe000)) byte))
+    ((< addr #xff00)
+     ;; sprites
+     (setf (aref *sprite-ram* (- addr #xfe00)) byte))
+    ((< addr #xff80)
+     ;; mmap-io
+     (setf (aref *mmap-i/o* (- addr #xff00)) byte))
+    (t
+     ;; zram
+     (setf (aref *z-ram* (- addr #xff80)) byte))))
+
 (defun init! ()
   (setq *pc* 0)
   (setq *sp* 0)
@@ -370,6 +400,17 @@
 
 	 (perform-alu-op! alu-op dest-reg)
 	 (incf *pc* size)))
+
+      ((= b1 #x32)
+       (let ((size 3)
+	     (msb (mem-byte (+ *pc* 2)))
+	     (lsb (mem-byte (* *pc* 1))))
+	 (mem-byte-set! (u16 msb lsb) *a*)
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr :ld
+					size
+					(alist :msb msb :lsb lsb)))
+	 (incf *pc* size)))
       
       (t
        (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
@@ -378,4 +419,5 @@
 	      b1))))
   *disassembled-instr*)
 
+(init!)
 (exec-instr!)
