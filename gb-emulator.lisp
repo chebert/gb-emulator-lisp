@@ -230,13 +230,30 @@
 (defun zero-set! () (setq *f* (logior #x80 *f*)))
 (defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
 
-(defun bytes->u16 (msb lsb)
-  (logior (ash msb 8) lsb))
+(defun u16 (hi lo)
+  (+ lo (ash hi 8)))
+(defun byte8 (num)
+  (logand #xff num))
+(defun byte-lo (u16)
+  (byte8 u16))
+(defun byte-hi (u16)
+  (byte8 (ash u16 -8)))
 
-(defun bc () (bytes->u16 *b* *c*))
-(defun de () (bytes->u16 *d* *e*))
-(defun hl () (bytes->u16 *h* *l*))
-(defun af () (bytes->u16 *a* *f*))
+(defun sign8 (byte)
+  "1 means sign is negative"
+  (logand 1 (ash byte -7)))
+(defun zero8 (byte)
+  "1 if zero"
+  (if (zerop byte) 1 0))
+(defun carry8 (num)
+  (if (> num (byte8 num)) 1 0))
+(defun carry16 (num)
+  (if (> num (logand #xffff num)) 1 0))
+
+(defun bc () (u16 *b* *c*))
+(defun de () (u16 *d* *e*))
+(defun hl () (u16 *h* *l*))
+(defun af () (u16 *a* *f*))
 
 (defun set-bc! (msb lsb)
   (setq *b* msb
@@ -255,11 +272,51 @@
     (:bc (set-bc! msb lsb))
     (:de (set-de! msb lsb))
     (:hl (set-hl! msb lsb))
-    (:sp (setq *sp* (bytes->u16 msb lsb)))
+    (:sp (setq *sp* (u16 msb lsb)))
     (:af (set-af! msb lsb))))
+
+(defun dest-reg (reg)
+  (ecase reg
+    (:a *a*)
+    (:b *b*)
+    (:c *c*)
+    (:d *d*)
+    (:e *e*)
+    (:f *f*)
+    (:h *h*)
+    (:l *l*)))
+(defun set-dest-reg! (reg byte)
+  (ecase reg
+    (:a (setq *a* byte))
+    (:b (setq *b* byte))
+    (:c (setq *c* byte))
+    (:d (setq *d* byte))
+    (:e (setq *e* byte))
+    (:f (setq *f* byte))
+    (:h (setq *h* byte))
+    (:l (setq *l* byte))))
 
 (defun mem-pc-byte ()
   (mem-byte *pc*))
+
+(defun perform-alu-op! (alu-op dest-reg)
+  (ecase alu-op
+    (:add (error "not implemented"))
+    (:adc (error "not implemented"))
+    (:sub (error "not implemented"))
+    (:sbc (error "not implemented"))
+    (:and (error "not implemented"))
+    (:xor
+     (setq *a* (logxor *a* (dest-reg dest-reg)))
+     
+     (carry-clear!)
+     (subtract-clear!)
+     (half-carry-clear!)
+     (if (zero8 *a*)
+	 (zero-set!)
+	 (zero-clear!)))
+    (:or (error "not implemented"))
+    (:cp (error "not implemented"))))
 
 ;; TODO: Categorize instructions
 
@@ -269,14 +326,16 @@
 (defun extract-bits (bits low-idx length)
   "Bits are indexed high to low: e.g. 76543210"
   (logand (ash bits (- low-idx))
-	  (1- (ash 1 (1+ length)))))
+	  (1- (ash 1 length))))
 
-(defparameter *regs* (vector :bc :de :hl :sp))
-(defparameter *stack-regs* (vector :bc :de :hl :af))
+(defparameter *dest-regs* #(:b :c :d :e :h :l :hl :a))
+(defparameter *regs* #(:bc :de :hl :sp))
+(defparameter *stack-regs* #(:bc :de :hl :af))
+(defparameter *alu-ops* #(:add :adc :sub :sbc :and :xor :or :cp))
 
 (defvar *disassembled-instr*)
-;; Disassemble&Implement instructions
 (defun exec-instr! ()
+  (declare (optimize debug))
   (let ((b1 (mem-pc-byte)))
     (cond
       ((= b1 #x00)
@@ -291,16 +350,32 @@
 	     (msb (mem-byte (+ *pc* 2)))
 	     (lsb (mem-byte (* *pc* 1)))
 	     (reg (aref *regs* (extract-bits b1 4 2))))
-	 (setq *disassembled-instr* (make-disassembled-instr :ld size (alist :reg reg :msb msb :lsb lsb)))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr :ld
+					size
+					(alist :reg reg :msb msb :lsb lsb)))
 	 (set-reg! reg msb lsb)
 	 (incf *pc* size)))
 
+      ((bits-match? b1
+		    #b10000000
+		    #b00111111)
+       (let ((size 1)
+	     (dest-reg (aref *dest-regs* (extract-bits b1 0 3)))
+	     (alu-op (aref *alu-ops* (extract-bits b1 3 3))))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr alu-op
+					size
+					(alist :dest-reg dest-reg)))
+
+	 (perform-alu-op! alu-op dest-reg)
+	 (incf *pc* size)))
+      
       (t
        (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 	      (logand (ash b1 -4) #xf)
 	      (logand b1 #xf)
-	      b1)))))
-
+	      b1))))
+  *disassembled-instr*)
 
 (exec-instr!)
-
