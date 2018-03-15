@@ -132,9 +132,10 @@
 	       "bios.gb"
 	       :gb-emulator)))
 
-(modest-functional:defrecord disassembled-instr
+(defrecord disassembled-instr
   name
-  size)
+  size
+  args)
 
 (defun kb (b) (* 1024 b))
 (defun memory (b)
@@ -229,23 +230,77 @@
 (defun zero-set! () (setq *f* (logior #x80 *f*)))
 (defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
 
+(defun bytes->u16 (msb lsb)
+  (logior (ash msb 8) lsb))
+
+(defun bc () (bytes->u16 *b* *c*))
+(defun de () (bytes->u16 *d* *e*))
+(defun hl () (bytes->u16 *h* *l*))
+(defun af () (bytes->u16 *a* *f*))
+
+(defun set-bc! (msb lsb)
+  (setq *b* msb
+	*c* lsb))
+(defun set-de! (msb lsb)
+  (setq *d* msb
+	*e* lsb))
+(defun set-hl! (msb lsb)
+  (setq *h* msb
+	*l* lsb))
+(defun set-af! (msb lsb)
+  (setq *a* msb
+	*f* lsb))
+(defun set-reg! (reg msb lsb)
+  (ecase reg
+    (:bc (set-bc! msb lsb))
+    (:de (set-de! msb lsb))
+    (:hl (set-hl! msb lsb))
+    (:sp (setq *sp* (bytes->u16 msb lsb)))
+    (:af (set-af! msb lsb))))
+
 (defun mem-pc-byte ()
   (mem-byte *pc*))
 
 ;; TODO: Categorize instructions
+
+(defun bits-match? (bp1 bp2 either-mask)
+  (= (logior bp1 either-mask) (logior bp2 either-mask)))
+
+(defun extract-bits (bits low-idx length)
+  "Bits are indexed high to low: e.g. 76543210"
+  (logand (ash bits (- low-idx))
+	  (1- (ash 1 (1+ length)))))
+
+(defparameter *regs* (vector :bc :de :hl :sp))
+(defparameter *stack-regs* (vector :bc :de :hl :af))
 
 (defvar *disassembled-instr*)
 ;; Disassemble&Implement instructions
 (defun exec-instr! ()
   (let ((b1 (mem-pc-byte)))
     (cond
-      (#x00
+      ((= b1 #x00)
        (let ((size 1))
-	 (setq *disassembled-instr* (make-disassembled-instr :nop size))
+	 (setq *disassembled-instr* (make-disassembled-instr :nop size ()))
 	 (incf *pc* size)))
-      (t (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
-		(logand (ash b1 -4) #xf)
-		(logand b1 #xf)
-		b1)))))
+
+      ((bits-match? b1
+		    #b00000001
+		    #b00110000)
+       (let ((size 3)
+	     (msb (mem-byte (+ *pc* 2)))
+	     (lsb (mem-byte (* *pc* 1)))
+	     (reg (aref *regs* (extract-bits b1 4 2))))
+	 (setq *disassembled-instr* (make-disassembled-instr :ld size (alist :reg reg :msb msb :lsb lsb)))
+	 (set-reg! reg msb lsb)
+	 (incf *pc* size)))
+
+      (t
+       (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
+	      (logand (ash b1 -4) #xf)
+	      (logand b1 #xf)
+	      b1)))))
+
 
 (exec-instr!)
+
