@@ -254,8 +254,8 @@
 (defun half-carry-set! () (setq *f* (logior #x20 *f*)))
 (defun half-carry-clear! () (setq *f* (logand (lognot #x20) *f*)))
 
-(defun subtract-set! () (setq *f* (logior #x40 *f*)))
-(defun subtract-clear! () (setq *f* (logand (lognot #x40) *f*)))
+(defun negative-set! () (setq *f* (logior #x40 *f*)))
+(defun negative-clear! () (setq *f* (logand (lognot #x40) *f*)))
 
 (defun zero-set! () (setq *f* (logior #x80 *f*)))
 (defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
@@ -284,6 +284,15 @@
 (defun de () (u16 *d* *e*))
 (defun hl () (u16 *h* *l*))
 (defun af () (u16 *a* *f*))
+
+(defun incr-hl! ()
+  (let ((hl (1+ (hl))))
+    (set-hl! (byte-hi hl)
+	     (byte-lo hl))))
+(defun decr-hl! ()
+  (let ((hl (1- (hl))))
+    (set-hl! (byte-hi hl)
+	     (byte-lo hl))))
 
 (defun set-bc! (msb lsb)
   (setq *b* msb
@@ -340,13 +349,21 @@
      (setq *a* (logxor *a* (dest-reg dest-reg)))
      
      (carry-clear!)
-     (subtract-clear!)
+     (negative-clear!)
      (half-carry-clear!)
      (if (zero8 *a*)
 	 (zero-set!)
 	 (zero-clear!)))
     (:or (error "not implemented"))
     (:cp (error "not implemented"))))
+
+(defun bit-test! (n dest-reg)
+  (let ((res (not (zerop (logand (ash 1 n) (dest-reg dest-reg))))))
+    (if res
+	(zero-set!)
+	(zero-clear!))
+    (negative-clear!)
+    (half-carry-set!)))
 
 ;; TODO: Categorize instructions
 
@@ -401,16 +418,60 @@
 	 (perform-alu-op! alu-op dest-reg)
 	 (incf *pc* size)))
 
-      ((= b1 #x32)
-       (let ((size 3)
-	     (msb (mem-byte (+ *pc* 2)))
-	     (lsb (mem-byte (* *pc* 1))))
-	 (mem-byte-set! (u16 msb lsb) *a*)
+      ((bits-match? b1
+		    #b00100010
+		    #b00011000)
+       (let ((size 1)
+	     (op-type (extract-bits b1 4 1))
+	     (dir (extract-bits b1 3 1)))
+	 (ecase dir
+	   (0
+	    ;; from a into hl
+	    (mem-byte-set! (hl) *a*))
+	   (1
+	    ;; from hl into a
+	    (setq *a* (mem-byte (hl)))))
+	 (ecase op-type
+	   (0 (incr-hl!))
+	   (1 (decr-hl!)))
 	 (setq *disassembled-instr*
-	       (make-disassembled-instr :ld
+	       (make-disassembled-instr (ecase op-type
+					  (0 :ldi)
+					  (1 :ldd))
 					size
-					(alist :msb msb :lsb lsb)))
+					(alist :dir (ecase dir
+						      (0 :left)
+						      (1 :right)))))
 	 (incf *pc* size)))
+
+      ((= b1 #b11001011)
+       ;; Two byte opcode
+       (let ((b2 (mem-byte (+ *pc* 1))))
+	 (cond
+	   ((bits-match? b2 #b00000000 #b00001111)
+	    ;; RLC
+	    (error "not implemented"))
+	   ((bits-match? b2 #b00010000 #b00001111)
+	    (error "not implemented"))
+	   ((bits-match? b2 #b00100000 #b00001111)
+	    (error "not implemented"))
+	   ((bits-match? b2 #b00110000 #b00001111)
+	    (error "not implemented"))
+	   ((bits-match? b2 #b01000000 #b00111111)
+	    ;; bit n, d
+	    (let ((size 2)
+		  (n (extract-bits b2 3 3))
+		  (dest-reg (aref *dest-regs* (extract-bits b2 0 3))))
+	      (setq *disassembled-instr*
+		    (make-disassembled-instr :bit
+					     size
+					     (alist :n n :dest-reg dest-reg)))
+	      (bit-test! n dest-reg)
+	      (incf *pc* size)))
+	   ((bits-match? b2 #b10000000 #b00111111)
+	    (error "not implemented"))
+	   ((bits-match? b2 #b11000000 #b00111111)
+	    (error "not implemented")))))
       
       (t
        (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
