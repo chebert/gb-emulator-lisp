@@ -139,6 +139,7 @@
 
 (defrecord disassembled-instr
   name
+  b1 b2 b3
   size
   args)
 
@@ -336,7 +337,8 @@
     (:e *e*)
     (:f *f*)
     (:h *h*)
-    (:l *l*)))
+    (:l *l*)
+    (:hl (mem-byte (hl)))))
 (defun set-dest-reg! (reg byte)
   (ecase reg
     (:a (setq *a* byte))
@@ -346,7 +348,8 @@
     (:e (setq *e* byte))
     (:f (setq *f* byte))
     (:h (setq *h* byte))
-    (:l (setq *l* byte))))
+    (:l (setq *l* byte))
+    (:hl (mem-byte-set! (hl) byte))))
 
 (defun mem-pc-byte ()
   (mem-byte *pc*))
@@ -401,15 +404,38 @@
 (defparameter *alu-ops* #(:add :adc :sub :sbc :and :xor :or :cp))
 (defparameter *conditions* #(:not-zero :zero :not-carry :carry))
 
+(defun arg-val-string (arg)
+  (case (car arg)
+    (:adr (format nil "#x~4,'0X" (cdr arg)))
+    (:n (format nil "~A (#x~2,'0X)" (cdr arg) (cdr arg)))
+    (t (format nil "~S" (cdr arg)))))
+
+(defun args-string (args)
+  (format nil "~a"
+	  (mapcar (lambda (arg)
+		    (cons (format nil "~S" (car arg)) (arg-val-string arg)))
+		  args)))
+
+(defun disassembled-instr-string (&optional (instr *disassembled-instr*))
+  "Pretty-print of instr into a string."
+  (format nil "~A ~A (~A bytes)"
+	  (name instr)
+	  (args-string (args instr))
+	  (size instr)))
+
+;; TODO: Add cycle counts to instrs
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (declare (optimize debug))
-  (let ((b1 (mem-pc-byte)))
+  (let ((b1 (mem-pc-byte))
+	(b2 (mem-byte (+ *pc* 1)))
+	(b3 (mem-byte (+ *pc* 2))))
     (cond
       ((= b1 #x00)
        ;; NOP
        (let ((size 1))
-	 (setq *disassembled-instr* (make-disassembled-instr :nop size ()))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr :nop b1 b2 b3 size ()))
 	 (incf *pc* size)))
 
       ((bits-match? b1
@@ -417,13 +443,14 @@
 		    #b00110000)
        ;; LD reg,**
        (let ((size 3)
-	     (msb (mem-byte (+ *pc* 2)))
-	     (lsb (mem-byte (* *pc* 1)))
+	     (msb b3)
+	     (lsb b2)
 	     (reg (aref *regs* (extract-bits b1 4 2))))
 	 (setq *disassembled-instr*
 	       (make-disassembled-instr :ld
+					b1 b2 b3
 					size
-					(alist :reg reg :msb msb :lsb lsb)))
+					(alist :reg reg :adr (u16 msb lsb))))
 	 (set-reg! reg msb lsb)
 	 (incf *pc* size)))
 
@@ -435,9 +462,12 @@
 	     (dest-reg (aref *dest-regs* (extract-bits b1 0 3)))
 	     (alu-op (aref *alu-ops* (extract-bits b1 3 3))))
 	 (setq *disassembled-instr*
-	       (make-disassembled-instr alu-op
-					size
-					(alist :dest-reg dest-reg)))
+	       (make-disassembled-instr
+		alu-op
+		b1 b2 b3
+		size
+		(alist :dest-reg
+		       (cons dest-reg (dest-reg dest-reg)))))
 
 	 (perform-alu-op! alu-op dest-reg)
 	 (incf *pc* size)))
@@ -461,13 +491,15 @@
 	   (0 (incr-hl!))
 	   (1 (decr-hl!)))
 	 (setq *disassembled-instr*
-	       (make-disassembled-instr (ecase op-type
-					  (0 :ldi)
-					  (1 :ldd))
-					size
-					(alist :dir (ecase dir
-						      (0 :left)
-						      (1 :right)))))
+	       (make-disassembled-instr
+		(ecase op-type
+		  (0 :ldi)
+		  (1 :ldd))
+		b1 b2 b3
+		size
+		(alist :dir (ecase dir
+			      (0 :a-to-hl)
+			      (1 :hl-to-a)))))
 	 (incf *pc* size)))
 
       ((bits-match? b1
@@ -475,53 +507,139 @@
 		    #b00011000)
        ;; JR cond, N
        (let ((size 2)
-	     (n (s8 (mem-byte (+ *pc* 1))))
+	     (n (s8 b2))
 	     (cnd (aref *conditions* (extract-bits b1 3 2))))
 	 (setq *disassembled-instr*
 	       (make-disassembled-instr :jr
+					b1 b2 b3
 					size
-					(alist :cond cnd :n n)))
+					(alist :cond cnd :n n :adr (- *pc* n))))
 	 (cond
 	   ((test-cond cnd)
 	    (incf *pc* n))
 	   (t
 	    (incf *pc* size)))))
+
+      ((bits-match? b1
+		    #b00000110
+		    #b00111000)
+       ;; LD D, N
+       (let ((size 2)
+	     (n b2)
+	     (dest-reg (aref *dest-regs* (extract-bits b1 3 3))))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr
+		:ld
+		b1 b2 b3
+		size
+		(alist :n n
+		       :dest-reg
+		       (cons dest-reg (dest-reg dest-reg)))))
+	 (set-dest-reg! dest-reg n)
+	 (incf *pc* size)))
       
       ((= b1 #b11001011)
        ;; Two byte opcode
-       (let ((b2 (mem-byte (+ *pc* 1))))
-	 (cond
-	   ((bits-match? b2 #b00000000 #b00001111)
-	    ;; RLC
-	    (error "not implemented"))
-	   ((bits-match? b2 #b00010000 #b00001111)
-	    (error "not implemented"))
-	   ((bits-match? b2 #b00100000 #b00001111)
-	    (error "not implemented"))
-	   ((bits-match? b2 #b00110000 #b00001111)
-	    (error "not implemented"))
-	   ((bits-match? b2 #b01000000 #b00111111)
-	    ;; BIT n, dest
-	    (let ((size 2)
-		  (n (extract-bits b2 3 3))
-		  (dest-reg (aref *dest-regs* (extract-bits b2 0 3))))
-	      (setq *disassembled-instr*
-		    (make-disassembled-instr :bit
-					     size
-					     (alist :n n :dest-reg dest-reg)))
-	      (bit-test! n dest-reg)
-	      (incf *pc* size)))
-	   ((bits-match? b2 #b10000000 #b00111111)
-	    (error "not implemented"))
-	   ((bits-match? b2 #b11000000 #b00111111)
-	    (error "not implemented")))))
+       (cond
+	 ((bits-match? b2 #b00000000 #b00001111)
+	  ;; RLC
+	  (error "not implemented"))
+	 ((bits-match? b2 #b00010000 #b00001111)
+	  (error "not implemented"))
+	 ((bits-match? b2 #b00100000 #b00001111)
+	  (error "not implemented"))
+	 ((bits-match? b2 #b00110000 #b00001111)
+	  (error "not implemented"))
+	 ((bits-match? b2 #b01000000 #b00111111)
+	  ;; BIT n, dest
+	  (let ((size 2)
+		(n (extract-bits b2 3 3))
+		(dest-reg (aref *dest-regs* (extract-bits b2 0 3))))
+	    (setq *disassembled-instr*
+		  (make-disassembled-instr
+		   :bit
+		   b1 b2 b3
+		   size
+		   (alist :n n
+			  :dest-reg (cons dest-reg (dest-reg dest-reg)))))
+	    (bit-test! n dest-reg)
+	    (incf *pc* size)))
+	 ((bits-match? b2 #b10000000 #b00111111)
+	  (error "not implemented"))
+	 ((bits-match? b2 #b11000000 #b00111111)
+	  (error "not implemented"))))
+
+      ((bits-match? b1
+		    #b11100010
+		    #b00010000)
+       ;; Ld (C), A
+       ;; Ld A, (C)
+       (let ((size 1)
+	     (dir (extract-bits b1 4 1))
+	     (adr (+ #xff00 *c*)))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr
+		:ld
+		b1 b2 b3
+		size
+		(alist :dir (ecase dir
+			      (0 :register-to-memory)
+			      (1 :memory-to-register))
+		       :a *a*
+		       :c (mem-byte adr)
+		       :adr adr)))
+
+	 (ecase dir
+	   (0 ;; A -> (C)
+	    (mem-byte-set! adr *a*))
+	   (1 ;; (C) -> A
+	    (setq *a* (mem-byte adr))))
+	 (incf *pc* size)))
+
+      ((bits-match? b1
+		    #b00000100
+		    #b00111000)
+       ;; Inc D
+       (let ((size 1)
+	     (dest-reg (aref *dest-regs* (extract-bits b1 3 3))))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr
+		:inc
+		b1 b2 b3
+		size
+		(alist :dest-reg
+		       (cons dest-reg (dest-reg dest-reg)))))
+	 (set-dest-reg! dest-reg (1+ (dest-reg dest-reg)))
+	 (incf *pc* size)))
+
+      ((bits-match? b1
+		    #b01000000
+		    #b00111111)
+       (let ((size 1)
+	     (r1 (aref *dest-regs* (extract-bits b1 3 3)))
+	     (r2 (aref *dest-regs* (extract-bits b1 0 3))))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr
+		:ld
+		b1 b2 b3
+		size
+		(alist :from-reg (cons r2 (dest-reg r2))
+		       :dest-reg (cons r1 (dest-reg r1)))))
+	 (set-dest-reg! r1 (dest-reg r2))
+	 (incf *pc* size)))
       
       (t
-       (error "Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
+       (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
+	      *pc*
 	      (logand (ash b1 -4) #xf)
 	      (logand b1 #xf)
 	      b1))))
   *disassembled-instr*)
 
-(init!)
-(exec-instr!)
+;; TODO: save disassembled instructions, and match them in automated test
+;; TODO: Macro to define instruction groups
+
+(progn
+  (init!)
+  (dotimes (i 18)
+    (format t "~&#x~4,'0x: ~A" *pc* (disassembled-instr-string (exec-instr!)))))
