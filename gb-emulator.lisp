@@ -122,6 +122,11 @@
       (read-sequence v stream)
       v)))
 
+(defun bin (&rest args)
+  (format nil "~b" args))
+(defun hex (&rest args)
+  (format nil "~X" args))
+
 (defun gb-cpu-instrs-special ()
   (file-bytes (modest-pathnames:application-file-pathname
 	       "test-roms/cpu_instrs/individual/01-special.gb"
@@ -248,18 +253,32 @@
   (load-bios!)
   :done)
 
+;; F: ZNHC0000
+
 (defun carry-set! () (setq *f* (logior #x10 *f*)))
+(defun carry-set? () (not (carry-clear?)))
 (defun carry-clear! () (setq *f* (logand (lognot #x10) *f*)))
+(defun carry-clear? () (zerop (logand #x10 *f*)))
 
 (defun half-carry-set! () (setq *f* (logior #x20 *f*)))
+(defun half-carry-set? () (not (half-carry-clear?)))
 (defun half-carry-clear! () (setq *f* (logand (lognot #x20) *f*)))
+(defun half-carry-clear? () (zerop (logand #x20 *f*)))
 
 (defun negative-set! () (setq *f* (logior #x40 *f*)))
+(defun negative-set? () (not (negative-clear?)))
 (defun negative-clear! () (setq *f* (logand (lognot #x40) *f*)))
+(defun negative-clear? () (zerop (logand #x40 *f*)))
 
 (defun zero-set! () (setq *f* (logior #x80 *f*)))
+(defun zero-set? () (not (zero-clear?)))
 (defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
+(defun zero-clear? () (zerop (logand #x80 *f*)))
 
+(defun s8 (u8)
+  (if (>= u8 #x80)
+      (- u8 #x100)
+      u8))
 (defun u16 (hi lo)
   (+ lo (ash hi 8)))
 (defun byte8 (num)
@@ -269,12 +288,6 @@
 (defun byte-hi (u16)
   (byte8 (ash u16 -8)))
 
-(defun sign8 (byte)
-  "1 means sign is negative"
-  (logand 1 (ash byte -7)))
-(defun zero8 (byte)
-  "1 if zero"
-  (if (zerop byte) 1 0))
 (defun carry8 (num)
   (if (> num (byte8 num)) 1 0))
 (defun carry16 (num)
@@ -351,7 +364,7 @@
      (carry-clear!)
      (negative-clear!)
      (half-carry-clear!)
-     (if (zero8 *a*)
+     (if (zerop *a*)
 	 (zero-set!)
 	 (zero-clear!)))
     (:or (error "not implemented"))
@@ -364,6 +377,13 @@
 	(zero-clear!))
     (negative-clear!)
     (half-carry-set!)))
+
+(defun test-cond (cnd)
+  (ecase cnd
+    (:not-zero (zero-clear?))
+    (:zero (zero-set?))
+    (:not-carry (carry-clear?))
+    (:carry (carry-set?))))
 
 ;; TODO: Categorize instructions
 
@@ -379,6 +399,7 @@
 (defparameter *regs* #(:bc :de :hl :sp))
 (defparameter *stack-regs* #(:bc :de :hl :af))
 (defparameter *alu-ops* #(:add :adc :sub :sbc :and :xor :or :cp))
+(defparameter *conditions* #(:not-zero :zero :not-carry :carry))
 
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
@@ -386,6 +407,7 @@
   (let ((b1 (mem-pc-byte)))
     (cond
       ((= b1 #x00)
+       ;; NOP
        (let ((size 1))
 	 (setq *disassembled-instr* (make-disassembled-instr :nop size ()))
 	 (incf *pc* size)))
@@ -393,6 +415,7 @@
       ((bits-match? b1
 		    #b00000001
 		    #b00110000)
+       ;; LD reg,**
        (let ((size 3)
 	     (msb (mem-byte (+ *pc* 2)))
 	     (lsb (mem-byte (* *pc* 1)))
@@ -407,6 +430,7 @@
       ((bits-match? b1
 		    #b10000000
 		    #b00111111)
+       ;; ALU-OP dest
        (let ((size 1)
 	     (dest-reg (aref *dest-regs* (extract-bits b1 0 3)))
 	     (alu-op (aref *alu-ops* (extract-bits b1 3 3))))
@@ -421,6 +445,8 @@
       ((bits-match? b1
 		    #b00100010
 		    #b00011000)
+       ;; LD (HL), a
+       ;; LD a, (HL)
        (let ((size 1)
 	     (op-type (extract-bits b1 4 1))
 	     (dir (extract-bits b1 3 1)))
@@ -444,6 +470,23 @@
 						      (1 :right)))))
 	 (incf *pc* size)))
 
+      ((bits-match? b1
+		    #b00100000
+		    #b00011000)
+       ;; JR cond, N
+       (let ((size 2)
+	     (n (s8 (mem-byte (+ *pc* 1))))
+	     (cnd (aref *conditions* (extract-bits b1 3 2))))
+	 (setq *disassembled-instr*
+	       (make-disassembled-instr :jr
+					size
+					(alist :cond cnd :n n)))
+	 (cond
+	   ((test-cond cnd)
+	    (incf *pc* n))
+	   (t
+	    (incf *pc* size)))))
+      
       ((= b1 #b11001011)
        ;; Two byte opcode
        (let ((b2 (mem-byte (+ *pc* 1))))
@@ -458,7 +501,7 @@
 	   ((bits-match? b2 #b00110000 #b00001111)
 	    (error "not implemented"))
 	   ((bits-match? b2 #b01000000 #b00111111)
-	    ;; bit n, d
+	    ;; BIT n, dest
 	    (let ((size 2)
 		  (n (extract-bits b2 3 3))
 		  (dest-reg (aref *dest-regs* (extract-bits b2 0 3))))
