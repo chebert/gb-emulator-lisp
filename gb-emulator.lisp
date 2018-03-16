@@ -403,6 +403,7 @@
     (if res
 	(zero-set!)
 	(zero-clear!))
+    ;; carry not affected
     (negative-clear!)
     (half-carry-set!)))
 
@@ -412,6 +413,11 @@
     (:zero (zero-set?))
     (:not-carry (carry-clear?))
     (:carry (carry-set?))))
+
+(defun half-carry? (old-byte byte)
+  (declare (ignore old-byte byte))
+  (warn "half-carry? not implemented")
+  nil)
 
 ;; TODO: Categorize instructions
 
@@ -454,6 +460,7 @@
 	       #b00110000))
 
 (defun ld-reg-imm16! (b1 b2 b3)
+  ;; no flags
   (let ((size 3)
 	(msb b3)
 	(lsb b2)
@@ -470,6 +477,7 @@
 (defun nop? (b1)
   (= b1 #x00))
 (defun nop! (b1 b2 b3)
+  ;; no flags
   (let ((size 1)
 	(cycle-count 4))
     (setq *disassembled-instr*
@@ -504,6 +512,7 @@
 	       #b00100010
 	       #b00011000))
 (defun ld-hl-a! (b1 b2 b3)
+  ;; no flags
   (let ((size 1)
 	(op-type (extract-bits b1 4 1))
 	(dir (extract-bits b1 3 1))
@@ -536,6 +545,7 @@
 	       #b00100000
 	       #b00011000))
 (defun jr-cond-n! (b1 b2 b3)
+  ;; no flags
   (let ((size 2)
 	(n (s8 b2))
 	(cnd (aref *conditions* (extract-bits b1 3 2)))
@@ -558,6 +568,7 @@
 	       #b00000110
 	       #b00111000))
 (defun ld-dest-n! (b1 b2 b3)
+  ;; no flags
   (let* ((size 2)
 	 (n b2)
 	 (dest-reg (aref *dest-regs* (extract-bits b1 3 3)))
@@ -598,6 +609,7 @@
      ;; RDirC r
      ;; rotate r (carry=old bit 7)
      (error "not implemented"))
+
     ((bits-match? b2 #b00010000 #b00001111)
      ;; RDir r
      ;; rotate r through carry (carry=old bit 7)
@@ -667,6 +679,7 @@
 	       #b11100010
 	       #b00010000))
 (defun ld-a-c! (b1 b2 b3)
+  ;; no flags
   (let ((size 1)
 	(dir (extract-bits b1 4 1))
 	(adr (+ #xff00 *c*)))
@@ -695,6 +708,7 @@
 	       #b11100000
 	       #b00010000))
 (defun ld-a-n! (b1 b2 b3)
+  ;; no flags
   (let ((size 2)
 	(dir (extract-bits b1 4 1))
 	(adr (+ #xff00 b2)))
@@ -736,7 +750,17 @@
 	   cycle-count
 	   (alist :dest-reg
 		  (cons dest-reg (dest-reg dest-reg)))))
-    (set-dest-reg! dest-reg (1+ (dest-reg dest-reg)))
+    (let* ((byte (dest-reg dest-reg))
+	   (result (1+ byte)))
+      (set-dest-reg! dest-reg result)
+      (if (zerop result)
+	  (zero-set!)
+	  (zero-clear!))
+      (negative-clear!)
+      ;; carry not affected
+      (if (half-carry? byte result)
+	  (half-carry-set!)
+	  (half-carry-clear!)))
     (incf *pc* size)))
 
 (defun ld-r1-r2? (b1)
@@ -744,6 +768,7 @@
 	       #b01000000
 	       #b00111111))
 (defun ld-r1-r2! (b1 b2 b3)
+  ;; no flags
   (let* ((size 1)
 	 (r1 (aref *dest-regs* (extract-bits b1 3 3)))
 	 (r2 (aref *dest-regs* (extract-bits b1 0 3)))
@@ -767,6 +792,7 @@
 	       #b00000010
 	       #b00011000))
 (defun ld-a-r! (b1 b2 b3)
+  ;; no flags
   (let* ((size 1)
 	 (reg (aref *regs* (extract-bits b1 4 1)))
 	 (adr (reg reg))
@@ -791,6 +817,7 @@
 (defun call-n? (b1)
   (= b1 #b11001101))
 (defun call-n! (b1 b2 b3)
+  ;; no flags
   (let* ((size 3)
 	 (lsb b2)
 	 (msb b3)
@@ -813,6 +840,7 @@
 	       #b11000001
 	       #b00110100))
 (defun push/pop-r! (b1 b2 b3)
+  ;; no flags
   (let* ((size 1)
 	 (reg (aref *regs* (extract-bits b1 4 2)))
 	 (type (extract-bits b1 2 1))
@@ -846,19 +874,26 @@
 	(b3 (mem-byte (+ *pc* 2))))
     (cond
       ((nop? b1) (nop! b1 b2 b3))
+
+      ;; Loads
       ((ld-reg-imm16? b1) (ld-reg-imm16! b1 b2 b3))
-      ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((ld-hl-a? b1) (ld-hl-a! b1 b2 b3))
-      ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
-      ((ld-dest-n? b1) (ld-dest-n! b1 b2 b3))
-      ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
       ((ld-a-c? b1) (ld-a-c! b1 b2 b3))
       ((ld-a-n? b1) (ld-a-n! b1 b2 b3))
-      ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((ld-r1-r2? b1) (ld-r1-r2! b1 b2 b3))
       ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
-      ((call-n? b1) (call-n! b1 b2 b3))
+      ((ld-dest-n? b1) (ld-dest-n! b1 b2 b3))
+
       ((push/pop-r? b1) (push/pop-r! b1 b2 b3))
+
+      ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
+      ((inc-dest? b1) (inc-dest! b1 b2 b3))
+      ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
+
+      ;; Jumps
+      ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
+      ((call-n? b1) (call-n! b1 b2 b3))
+
       (t
        (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 	      *pc*
@@ -868,7 +903,6 @@
   :done)
 
 ;; TODO: save disassembled instructions, and match them in automated test
-;; TODO: set flags
 
 (defparameter *tetris-filename* "roms/Tetris (World).gb")
 
@@ -885,7 +919,7 @@
   (init!)
   (load-rom! *tetris-filename*)
   (let (pc)
-    (dotimes (i 28)
+    (dotimes (i 27)
       (setq pc *pc*)
       (exec-instr!))
     (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
