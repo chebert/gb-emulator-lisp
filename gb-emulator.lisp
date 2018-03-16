@@ -259,6 +259,16 @@
   (init-memory-regions!)
   :done)
 
+(defun stack-push! (byte)
+  (decf *sp*)
+  (mem-byte-set! *sp* byte))
+(defun stack-top ()
+  (mem-byte *sp*))
+(defun stack-pop! ()
+  (let ((b (stack-top)))
+    (incf *sp*)
+    b))
+
 ;; F: ZNHC0000
 
 (defun carry-set! () (setq *f* (logior #x10 *f*)))
@@ -293,6 +303,8 @@
   (byte8 u16))
 (defun byte-hi (u16)
   (byte8 (ash u16 -8)))
+(defun lsb (u16) (byte-lo u16))
+(defun msb (u16) (byte-hi u16))
 
 (defun carry8 (num)
   (if (> num (byte8 num)) 1 0))
@@ -726,6 +738,26 @@
        (setq *a* (mem-byte adr))))
     (incf *pc* size)))
 
+(defun call-n? (b1)
+  (= b1 #b11001101))
+(defun call-n! (b1 b2 b3)
+  (let* ((size 3)
+	 (lsb b2)
+	 (msb b3)
+	 (adr (u16 msb lsb))
+	 (cycle-count 12))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :call
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :adr adr)))
+    (let ((next-pc (+ *pc* size)))
+      (stack-push! (lsb next-pc))
+      (stack-push! (msb next-pc))
+      (setq *pc* adr))))
+
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (declare (optimize debug))
@@ -745,6 +777,7 @@
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((ld-r1-r2? b1) (ld-r1-r2! b1 b2 b3))
       ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
+      ((call-n? b1) (call-n! b1 b2 b3))
       (t
        (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 	      *pc*
@@ -769,7 +802,10 @@
 (progn
   (init!)
   (load-rom! *tetris-filename*)
-  (dotimes (i 22)
-    (let ((pc *pc*))
-      (exec-instr!)
-      (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string)))))
+  (let (pc)
+    (dotimes (i 26)
+      (setq pc *pc*)
+      (exec-instr!))
+    (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
+;; 11000101
+;; Push/Pop R
