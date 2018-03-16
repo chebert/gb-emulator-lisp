@@ -449,10 +449,14 @@
 
 (defun disassembled-instr-string (&optional (instr *disassembled-instr*))
   "Pretty-print of instr into a string."
-  (format nil "~A ~A (~A bytes)"
-	  (name instr)
-	  (args-string (args instr))
-	  (size instr)))
+  (typecase instr
+    (disassembled-instr
+     (format nil "~A ~A (~A bytes)"
+	     (name instr)
+	     (args-string (args instr))
+	     (size instr)))
+    (t
+     (apply #'bin instr))))
 
 (defun ld-reg-imm16? (b1)
   (bits-match? b1
@@ -599,6 +603,12 @@
 (defun rotate-left-carry-bit (old-byte)
   (bit7 old-byte))
 
+(defun not-implemented (fmt &rest args)
+  (apply #'warn fmt args)
+  (setq *disassembled-instr* (list (mem-byte *pc*)
+				   (mem-byte (+ *pc* 1))
+				   (mem-byte (+ *pc* 2)))))
+
 (defun 16-bit-op? (b1)
   (= b1 #b11001011))
 (defun 16-bit-op! (b1 b2 b3)
@@ -608,7 +618,7 @@
     ((bits-match? b2 #b00000000 #b00001111)
      ;; RDirC r
      ;; rotate r (carry=old bit 7)
-     (error "not implemented"))
+     (not-implemented "not implemented"))
 
     ((bits-match? b2 #b00010000 #b00001111)
      ;; RDir r
@@ -648,9 +658,9 @@
        (incf *pc* size)))
 
     ((bits-match? b2 #b00100000 #b00001111)
-     (error "not implemented"))
+     (not-implemented "not implemented"))
     ((bits-match? b2 #b00110000 #b00001111)
-     (error "not implemented"))
+     (not-implemented "not implemented"))
     ((bits-match? b2 #b01000000 #b00111111)
      ;; BIT n, dest
      (let* ((size 2)
@@ -670,9 +680,9 @@
        (bit-test! n dest-reg)
        (incf *pc* size)))
     ((bits-match? b2 #b10000000 #b00111111)
-     (error "not implemented"))
+     (not-implemented "not implemented"))
     ((bits-match? b2 #b11000000 #b00111111)
-     (error "not implemented"))))
+     (not-implemented "not implemented"))))
 
 (defun ld-a-c? (b1)
   (bits-match? b1
@@ -897,11 +907,11 @@
       ((call-n? b1) (call-n! b1 b2 b3))
 
       (t
-       (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
-	      *pc*
-	      (logand (ash b1 -4) #xf)
-	      (logand b1 #xf)
-	      b1))))
+       (not-implemented "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
+			*pc*
+			(logand (ash b1 -4) #xf)
+			(logand b1 #xf)
+			b1))))
   :done)
 
 ;; TODO: save disassembled instructions, and match them in automated test
@@ -943,13 +953,12 @@
    :window-dims (vs 480)
    :id :disassembled-instrs))
 
-;; BUG: replace-element inside of another element
 ;; BUG: scroll-bars inside of collapsable element
 
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
     (init!)
-    ;;(setq *instr-history* ())
+    (setq *instr-history* ())
     (load-rom! *tetris-filename*)
 
     (modest-gui:init-event-handlers!)
