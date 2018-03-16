@@ -758,6 +758,37 @@
       (stack-push! (msb next-pc))
       (setq *pc* adr))))
 
+(defun push/pop-r? (b1)
+  (bits-match? b1
+	       #b11000001
+	       #b00110100))
+(defun push/pop-r! (b1 b2 b3)
+  (let* ((size 1)
+	 (reg (aref *regs* (extract-bits b1 4 2)))
+	 (type (extract-bits b1 2 1))
+	 (cycle-count (ecase type
+			(0 ;;pop
+			 12)
+			(1 ;;push
+			 16))))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   (ecase type
+	     (0 :pop)
+	     (1 :push))
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :reg reg)))
+    (ecase type
+      (0
+       (stack-push! *b*)
+       (stack-push! *c*))
+      (1
+       (setq *c* (stack-pop!))
+       (setq *b* (stack-pop!))))
+    (incf *pc* size)))
+
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (declare (optimize debug))
@@ -778,6 +809,7 @@
       ((ld-r1-r2? b1) (ld-r1-r2! b1 b2 b3))
       ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
       ((call-n? b1) (call-n! b1 b2 b3))
+      ((push/pop-r? b1) (push/pop-r! b1 b2 b3))
       (t
        (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 	      *pc*
@@ -803,9 +835,7 @@
   (init!)
   (load-rom! *tetris-filename*)
   (let (pc)
-    (dotimes (i 26)
+    (dotimes (i 27)
       (setq pc *pc*)
       (exec-instr!))
     (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
-;; 11000101
-;; Push/Pop R
