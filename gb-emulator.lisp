@@ -921,7 +921,51 @@
   (init!)
   (load-rom! *tetris-filename*)
   (let (pc)
-    (dotimes (i 27)
+    (dotimes (i 28)
       (setq pc *pc*)
       (exec-instr!))
     (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
+
+;; TODO: start making a GUI
+(defun main! ()
+  (ssdl:with-init "GameBoy" 960 640
+    ;; Step 1: init
+    (modest-gui:init-event-handlers!)
+    (let* (;; Step 2: load font
+	   (assets (modest-drawing:assets-loaded! () (list *font-asset*)))
+
+	   ;; Step 3: GUI
+	   (gui (modest-gui:e-file-browser))
+
+	   ;; Step 4: gui-state
+	   (gui-state (modest-gui:make-gui-state gui assets ())))
+
+      (setq gui-state (modest-gui:gui-state-created! gui-state))
+
+      ;; step 6
+      (ssdl:enable-text-input)
+      (modest-gui:main-loop (input frames)
+	(let ((drawings ())
+	      (events ()))
+	  (appendf drawings (modest-gui:cursor-drawings input))
+
+	  (setq
+	   gui-state
+	   (modest-gui:gui-state-update-applied!
+	    gui-state input 0 (v0) drawings events))
+
+	  (modest-gui:draw-drawings! drawings)
+
+	  (setq gui-state (modest-gui:events-processed! events gui-state))
+	  (setq gui-state (modest-gui:gui-state-assets-replaced! gui-state))))
+
+      (modest-gui:gui-state-assets-freed! gui-state)
+      (values))))
+
+(defparameter *font-asset*
+  (modest-drawing:make-font-asset
+   :font-text
+   nil
+   (namestring
+    (modest-pathnames:application-file-pathname "DejaVuSans.ttf" :modest)) 14))
+
