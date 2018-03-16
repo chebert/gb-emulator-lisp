@@ -156,7 +156,9 @@
   *e* *f*
   *h* *l*
 
+  *bios-run?*
   ;; Memory Regions
+  *bios-rom*
   *bank0-rom*
   *bank1-rom*
   *video-ram*
@@ -167,11 +169,9 @@
   *z-ram* ;; zero-page (page 255) RAM
   )
 
-(defun load-bios! ()
-  (setf (subseq *bank0-rom* 0) (bios)))
-
 (defun init-memory-regions! ()
-  (setq *bank0-rom* (memory (kb 16))
+  (setq *bios-rom* (bios)
+	*bank0-rom* (memory (kb 16))
 	*bank1-rom* (memory (kb 16))
 	*video-ram* (memory (kb 8))
 	*ext-ram* (memory (kb 8))
@@ -182,6 +182,8 @@
 
 (defun mem-byte (addr)
   (cond
+    ((and (not *bios-run?*) (< addr #x100))
+     (aref *bios-rom* addr))
     ((< addr #x4000)
      ;; bank0
      (aref *bank0-rom* addr))
@@ -212,6 +214,8 @@
 
 (defun mem-byte-set! (addr byte)
   (cond
+    ((and (not *bios-run?*) (< addr #x100))
+     (setf (aref *bios-rom* addr) byte))
     ((< addr #x4000)
      ;; bank0
      (setf (aref *bank0-rom* addr) byte))
@@ -241,6 +245,7 @@
      (setf (aref *z-ram* (- addr #xff80)) byte))))
 
 (defun init! ()
+  (setq *bios-run?* nil)
   (setq *pc* 0)
   (setq *sp* 0)
   (setq *a* 0)
@@ -252,7 +257,6 @@
   (setq *h* 0)
   (setq *l* 0)
   (init-memory-regions!)
-  (load-bios!)
   :done)
 
 ;; F: ZNHC0000
@@ -328,6 +332,13 @@
     (:hl (set-hl! msb lsb))
     (:sp (setq *sp* (u16 msb lsb)))
     (:af (set-af! msb lsb))))
+(defun reg (reg)
+  (ecase reg
+    (:bc (bc))
+    (:de (de))
+    (:hl (hl))
+    (:sp *sp*)
+    (:af (af))))
 
 (defun dest-reg (reg)
   (ecase reg
@@ -452,11 +463,11 @@
 	  (make-disassembled-instr :nop b1 b2 b3 size cycle-count ()))
     (incf *pc* size)))
 
-(defun alu-op? (b1)
+(defun alu-op-d? (b1)
   (bits-match? b1
 	       #b10000000
 	       #b00111111))
-(defun alu-op! (b1 b2 b3)
+(defun alu-op-d! (b1 b2 b3)
   (let* ((size 1)
 	 (dest-reg (aref *dest-regs* (extract-bits b1 0 3)))
 	 (alu-op (aref *alu-ops* (extract-bits b1 3 3)))
@@ -617,6 +628,34 @@
        (setq *a* (mem-byte adr))))
     (incf *pc* size)))
 
+(defun ld-a-n? (b1)
+  (bits-match? b1
+	       #b11100000
+	       #b00010000))
+(defun ld-a-n! (b1 b2 b3)
+  (let ((size 2)
+	(dir (extract-bits b1 4 1))
+	(adr (+ #xff00 b2)))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :ld
+	   b1 b2 b3
+	   size
+	   12
+	   (alist :dir (ecase dir
+			 (0 :register-to-memory)
+			 (1 :memory-to-register))
+		  :a *a*
+		  :n b2
+		  :adr adr)))
+
+    (ecase dir
+      (0 ;; A -> (n)
+       (mem-byte-set! adr *a*))
+      (1 ;; (n) -> A
+       (setq *a* (mem-byte adr))))
+    (incf *pc* size)))
+
 (defun inc-dest? (b1)
   (bits-match? b1
 	       #b00000100
@@ -661,6 +700,32 @@
     (set-dest-reg! r1 (dest-reg r2))
     (incf *pc* size)))
 
+(defun ld-a-r? (b1)
+  (bits-match? b1
+	       #b00000010
+	       #b00011000))
+(defun ld-a-r! (b1 b2 b3)
+  (let* ((size 1)
+	 (reg (aref *regs* (extract-bits b1 4 1)))
+	 (adr (reg reg))
+	 (dir (extract-bits b1 3 1))
+	 (cycle-count 8))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :ld
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :reg reg
+		  :adr adr
+		  :dir (aref #(:a-to-r :r-to-a) dir))))
+    (ecase dir
+      (0 ;; a -> (r)
+       (mem-byte-set! adr *a*))
+      (1 ;; (r) -> a
+       (setq *a* (mem-byte adr))))
+    (incf *pc* size)))
+
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (declare (optimize debug))
@@ -670,14 +735,16 @@
     (cond
       ((nop? b1) (nop! b1 b2 b3))
       ((ld-reg-imm16? b1) (ld-reg-imm16! b1 b2 b3))
-      ((alu-op? b1) (alu-op! b1 b2 b3))
+      ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((ld-hl-a? b1) (ld-hl-a! b1 b2 b3))
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
       ((ld-dest-n? b1) (ld-dest-n! b1 b2 b3))
       ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
       ((ld-a-c? b1) (ld-a-c! b1 b2 b3))
+      ((ld-a-n? b1) (ld-a-n! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((ld-r1-r2? b1) (ld-r1-r2! b1 b2 b3))
+      ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
       (t
        (error "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
 	      *pc*
@@ -688,9 +755,21 @@
 
 ;; TODO: save disassembled instructions, and match them in automated test
 
+(defparameter *tetris-filename* "roms/Tetris (World).gb")
+
+(defun load-rom! (filename)
+  (let ((rom-bytes 
+	 (file-bytes (modest-pathnames:application-file-pathname
+		      filename
+		      :gb-emulator))))
+    (setq *bank0-rom* (subseq rom-bytes 0 (kb 16)))
+    (setq *bank1-rom* (subseq rom-bytes (kb 16)))))
+
 #+nil
 (progn
   (init!)
-  (dotimes (i 18)
-    (exec-instr!)
-    (format t "~&#x~4,'0x: ~A" *pc* (disassembled-instr-string))))
+  (load-rom! *tetris-filename*)
+  (dotimes (i 22)
+    (let ((pc *pc*))
+      (exec-instr!)
+      (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string)))))
