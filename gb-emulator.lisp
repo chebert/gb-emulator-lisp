@@ -123,9 +123,9 @@
       v)))
 
 (defun bin (&rest args)
-  (format nil "~b" args))
+  (format nil "(~{#b~8,'0b~^ ~})" args))
 (defun hex (&rest args)
-  (format nil "~X" args))
+  (format nil "(~{#x~4,'0x~^ ~})" args))
 
 (defun gb-cpu-instrs-special ()
   (file-bytes (modest-pathnames:application-file-pathname
@@ -275,6 +275,7 @@
 (defun carry-set? () (not (carry-clear?)))
 (defun carry-clear! () (setq *f* (logand (lognot #x10) *f*)))
 (defun carry-clear? () (zerop (logand #x10 *f*)))
+(defun carry-bit () (if (carry-clear?) 0 1))
 
 (defun half-carry-set! () (setq *f* (logior #x20 *f*)))
 (defun half-carry-set? () (not (half-carry-clear?)))
@@ -575,16 +576,65 @@
     (set-dest-reg! dest-reg n)
     (incf *pc* size)))
 
+(defun byte-bit (byte idx)
+  (logand 1 (ash byte (- idx))))
+(defun bit7 (byte) (byte-bit byte 7))
+
+(defun rotate-left-through-carry (byte carry-bit)
+  (logand #xff (logior (ash byte 1) carry-bit)))
+(defun rotate-left (byte)
+  (logand #xff (logior (ash byte 1) (bit7 byte))))
+
+(defun rotate-left-carry-bit (old-byte)
+  (bit7 old-byte))
+
 (defun 16-bit-op? (b1)
   (= b1 #b11001011))
 (defun 16-bit-op! (b1 b2 b3)
+  (declare (optimize debug))
   ;; Two-byte opcode
   (cond
     ((bits-match? b2 #b00000000 #b00001111)
-     ;; RLC
+     ;; RDirC r
+     ;; rotate r (carry=old bit 7)
      (error "not implemented"))
     ((bits-match? b2 #b00010000 #b00001111)
-     (error "not implemented"))
+     ;; RDir r
+     ;; rotate r through carry (carry=old bit 7)
+     (let* ((size 2)
+	    (dir (extract-bits b2 3 1))
+	    ;; TODO: dest-reg-name func
+	    (dest-reg (aref *dest-regs* (extract-bits b2 0 3)))
+	    (byte (dest-reg dest-reg))
+	    (cycle-count (if (eq dest-reg :hl)
+			     16
+			     8)))
+       (setq *disassembled-instr*
+	     (make-disassembled-instr
+	      (ecase dir
+		(0 ;; left
+		 :rl)
+		(1 ;; right
+		 :rr))
+	      b1 b2 b3
+	      size
+	      cycle-count
+	      (alist :dest-reg (cons dest-reg (dest-reg dest-reg)))))
+       (let ((res (ecase dir
+		    (0 (rotate-left-through-carry byte (carry-bit))))))
+	 (set-dest-reg! dest-reg res)
+	 (ecase dir
+	   (0 (if (zerop (rotate-left-carry-bit byte))
+		  (carry-clear!)
+		  (carry-set!))))
+	 (negative-clear!)
+	 (half-carry-clear!)
+	 ;; TODO: set/clear zero function
+	 (if (zerop res)
+	     (zero-set!)
+	     (zero-clear!)))
+       (incf *pc* size)))
+
     ((bits-match? b2 #b00100000 #b00001111)
      (error "not implemented"))
     ((bits-match? b2 #b00110000 #b00001111)
@@ -791,7 +841,6 @@
 
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
-  (declare (optimize debug))
   (let ((b1 (mem-pc-byte))
 	(b2 (mem-byte (+ *pc* 1)))
 	(b3 (mem-byte (+ *pc* 2))))
@@ -819,6 +868,7 @@
   :done)
 
 ;; TODO: save disassembled instructions, and match them in automated test
+;; TODO: set flags
 
 (defparameter *tetris-filename* "roms/Tetris (World).gb")
 
@@ -835,7 +885,7 @@
   (init!)
   (load-rom! *tetris-filename*)
   (let (pc)
-    (dotimes (i 27)
+    (dotimes (i 28)
       (setq pc *pc*)
       (exec-instr!))
     (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
