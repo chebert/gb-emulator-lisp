@@ -414,10 +414,10 @@
     (:not-carry (carry-clear?))
     (:carry (carry-set?))))
 
-(defun half-carry? (old-byte byte)
-  (declare (ignore old-byte byte))
-  (warn "half-carry? not implemented")
-  nil)
+(defun half-carry? (byte addend)
+  (not (zerop (logand #x10
+		      (+ (logand #xf byte)
+			 (logand #xf addend))))))
 
 ;; TODO: Categorize instructions
 
@@ -758,7 +758,7 @@
 	  (zero-clear!))
       (negative-clear!)
       ;; carry not affected
-      (if (half-carry? byte result)
+      (if (half-carry? byte 1)
 	  (half-carry-set!)
 	  (half-carry-clear!)))
     (incf *pc* size)))
@@ -884,13 +884,15 @@
       ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
       ((ld-dest-n? b1) (ld-dest-n! b1 b2 b3))
 
+      ;; Stack ops
       ((push/pop-r? b1) (push/pop-r! b1 b2 b3))
 
+      ;; Arithmetic/Bit ops
       ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
 
-      ;; Jumps
+      ;; Jumps/Calls
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
       ((call-n? b1) (call-n! b1 b2 b3))
 
