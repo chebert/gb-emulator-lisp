@@ -923,22 +923,45 @@
   (let (pc)
     (dotimes (i 28)
       (setq pc *pc*)
-      (exec-instr!))
+      (exec-instr!)
+      (push-instr! pc *disassembled-instr*))
     (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
 
 (defvar *instr-history*)
 (defun push-instr! (pc disassembled-instr)
   (push (cons pc disassembled-instr) *instr-history*))
 
+(defun instruction-e-list ()
+  (modest-gui:e-scroll-view
+   (modest-gui:e-list
+    (mapcar
+     (lambda (instr)
+       (format nil "~&#x~4,'0x: ~A"
+	       (car instr)
+	       (disassembled-instr-string (cdr instr))))
+     *instr-history*))
+   :window-dims (vs 480)
+   :id :disassembled-instrs))
+
+;; BUG: replace-element inside of another element
+;; BUG: scroll-bars inside of collapsable element
+
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
     (init!)
-    (setq *instr-history* ())
+    ;;(setq *instr-history* ())
     (load-rom! *tetris-filename*)
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (modest-gui:e-button :id :step-button :text "Step"))
+	   (gui (modest-gui:e-collapsable
+		 (modest-gui:vbox
+		  :elements
+		  (list
+		   (instruction-e-list)
+		   (modest-gui:e-button :id :step-button :text "Step")))
+		 :text "Disassembly"
+		 :collapsed? nil))
 	   (gui-state (modest-gui:make-gui-state gui assets ())))
 
       (setq gui-state (modest-gui:gui-state-created! gui-state))
@@ -951,9 +974,14 @@
 		(declare (ignore event))
 		(let ((pc *pc*))
 		  (exec-instr!)
-		  (push-instr! pc *disassembled-instr*)
-		  (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string)))
-		gui-state))
+		  (push-instr! pc *disassembled-instr*))
+		(multiple-value-bind (gui assets) (modest-gui:replace-element!
+						   (modest-gui:assets gui-state)
+						   (modest-gui:gui gui-state)
+						   (instruction-e-list))
+		  (modest-gui:copy-gui-state gui-state
+					     :gui gui
+					     :assets assets))))
 	     
 	     (ssdl:enable-text-input)
 	     (modest-gui:main-loop (input frames)
