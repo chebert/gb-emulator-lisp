@@ -950,10 +950,8 @@
 	       (car instr)
 	       (disassembled-instr-string (cdr instr))))
      *instr-history*))
-   :window-dims (vs 480)
+   :window-dims (make-v 300 240)
    :id :disassembled-instrs))
-
-;; BUG: scroll-bars inside of collapsable element
 
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
