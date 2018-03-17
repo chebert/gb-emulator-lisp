@@ -946,15 +946,15 @@
   (push (cons pc disassembled-instr) *instr-history*))
 
 (defun instruction-e-list ()
-  (modest-gui:e-scroll-view
-   (modest-gui:e-list
-    (mapcar
-     (lambda (instr)
-       (format nil "~&#x~4,'0x: ~A"
-	       (car instr)
-	       (disassembled-instr-string (cdr instr))))
-     *instr-history*))
-   :window-dims (make-v 300 240)
+  (modest-gui:e-list
+   (mapcar
+    (lambda (instr)
+      (format nil "~&#x~4,'0x: ~A"
+	      (car instr)
+	      (typecase (cdr instr)
+		(disassembled-instr (name (cdr instr)))
+		(t "Not Implemented"))))
+    *instr-history*)
    :id :disassembled-instrs))
 
 (defun byte-text (val 16-bit? base)
@@ -1039,6 +1039,23 @@
   (setq *gui-state*
 	(modest-gui:gui-state-assets-replaced! *gui-state*)))
 
+(defun selected-instr ()
+  (when (plusp (length *instr-history*))
+    (let ((instrs-e (modest-gui:find-element (modest-gui:gui *gui-state*)
+					     :disassembled-instrs)))
+      (nth (modest-gui:selected-idx instrs-e) *instr-history*))))
+
+(defun selected-disassembled-instr-e ()
+  (let ((instr (selected-instr)))
+    (modest-gui:e-text
+     :id :disassembled-instr-text
+     :text (format nil "Instr: ~A"
+		   (if instr
+		       (disassembled-instr-string (cdr instr))
+		       "")))))
+
+
+
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
     (init!)
@@ -1047,18 +1064,24 @@
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (modest-gui:hbox
+	   (gui (modest-gui:vbox
 		 :elements
 		 (list
-		  (modest-gui:e-collapsable
-		   (modest-gui:vbox
-		    :elements
-		    (list
-		     (instruction-e-list)
-		     (modest-gui:e-button :id :step-button :text "Step")))
-		   :text "Disassembly"
-		   :collapsed? nil)
-		  (cpu-regs-e)))))
+		  (modest-gui:hbox
+		   :elements
+		   (list
+		    (modest-gui:e-collapsable
+		     (modest-gui:vbox
+		      :elements
+		      (list
+		       (modest-gui:e-scroll-view
+			(instruction-e-list)
+			:window-dims (make-v 200 240))
+		       (modest-gui:e-button :id :step-button :text "Step")))
+		     :text "Disassembly"
+		     :collapsed? nil)
+		    (cpu-regs-e)))
+		  (selected-disassembled-instr-e)))))
 
       (setq *gui-state* (modest-gui:gui-state-created!
 			 (modest-gui:make-gui-state gui assets ())))
@@ -1074,6 +1097,7 @@
 		  (push-instr! pc *disassembled-instr*))
 
 		(gui-state-replace-element! (instruction-e-list))
+		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
 		*gui-state*))
 
@@ -1088,7 +1112,17 @@
 				   (modest-gui:element event))
 				  *reg-bases*))
 		(gui-state-replace-element! (instruction-e-list))
+		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
+		*gui-state*))
+
+	     (modest-gui:register-handler!
+	      'modest-gui:changed-event
+	      :disassembled-instrs
+	      (lambda (gui-state event)
+		(declare (ignore gui-state event))
+
+		(gui-state-replace-element! (selected-disassembled-instr-e))
 		*gui-state*))
 	     
 	     (ssdl:enable-text-input)
@@ -1112,5 +1146,6 @@
    :font-text
    nil
    (namestring
-    (modest-pathnames:application-file-pathname "FiraMono-Regular.otf" :gb-emulator))
+    (modest-pathnames:application-file-pathname
+     "FiraMono-Regular.otf" :gb-emulator))
    14))
