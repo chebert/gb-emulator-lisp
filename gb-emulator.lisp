@@ -296,6 +296,10 @@
   (if (>= u8 #x80)
       (- u8 #x100)
       u8))
+(defun s16 (u16)
+  (if (>= u16 #x8000)
+      (- u16 #x10000)
+      u16))
 (defun u16 (hi lo)
   (+ lo (ash hi 8)))
 (defun byte8 (num)
@@ -953,6 +957,88 @@
    :window-dims (make-v 300 240)
    :id :disassembled-instrs))
 
+(defun byte-text (val 16-bit? base)
+  (ecase base
+    (:binary
+     (if 16-bit?
+	 (format nil "b~4,'0b ~4,'0b ~4,'0b ~4,'0b"
+		 (logand #xf (ash val -12))
+		 (logand #xf (ash val -8))
+		 (logand #xf (ash val -4))
+		 (logand #xf val))
+	 (format nil "b~4,'0b ~4,'0b          "
+		 (logand #xf (ash val -4))
+		 (logand #xf val))))
+    (:decimal
+     (if 16-bit?
+	 (format nil " ~5,' d (~6,' d)" val (s16 val))
+	 (format nil " ~3,' d   (~4,' d)  " val (s8 val))))
+    (:hex
+     (if 16-bit?
+	 (format nil "x~4,'0x" val)
+	 (format nil "x~2,'0x  " val)))))
+
+(defun reg-text (reg-name val 16-bit? base)
+  (format nil "~A: ~A" reg-name (byte-text val 16-bit? base)))
+
+(defvar *reg-base* :decimal)
+(defparameter *reg-bases* '(:hex :binary :decimal))
+
+;; TODO: mark which regs have changed
+;; button to cycle base 2,10,16
+(defun cpu-regs-e ()
+  ;; Create element
+  (modest-gui:e-collapsable
+   (modest-gui:vbox
+    :elements
+    (list (modest-gui:e-text :text (reg-text "PC" *pc* t :hex))
+	  (modest-gui:e-text :text (reg-text "SP" *sp* t :hex))
+	  (modest-gui:hbox
+	   :elements
+	   (list
+	    (modest-gui:e-text :text (reg-text "A " *a* nil *reg-base*))
+	    (modest-gui:e-text :text (reg-text "AF" (af) t *reg-base*))))
+	  (modest-gui:hbox
+	   :elements
+	   (list
+	    (modest-gui:e-text :text (reg-text "B " *b* nil *reg-base*))
+	    (modest-gui:e-text :text (reg-text "BC" (bc) t *reg-base*))))
+	  (modest-gui:e-text :text (reg-text "C " *c* nil *reg-base*))
+	  (modest-gui:hbox
+	   :elements
+	   (list
+	    (modest-gui:e-text :text (reg-text "D " *d* nil *reg-base*))
+	    (modest-gui:e-text :text (reg-text "DE" (de) t *reg-base*))))
+	  (modest-gui:e-text :text (reg-text "E " *e* nil *reg-base*))
+	  (modest-gui:e-text :text (reg-text "F " *f* nil *reg-base*))
+	  (modest-gui:hbox
+	   :elements
+	   (list
+	    (modest-gui:e-text :text (reg-text "H " *h* nil *reg-base*))
+	    (modest-gui:e-text :text (reg-text "HL" (hl) t *reg-base*))))
+	  (modest-gui:e-text :text (reg-text "L " *l* nil *reg-base*))
+	  (modest-gui:e-radio-button '("Hex" "Bin" "Dec")
+				     :id :reg-base
+				     :selected-option-idx
+				     (position *reg-base* *reg-bases*))))
+   :id :cpu
+   :text "CPU"))
+
+(defvar *gui-state*)
+
+(defun gui-state-replace-element! (e)
+  (multiple-value-bind (gui assets) (modest-gui:replace-element!
+				     (modest-gui:assets *gui-state*)
+				     (modest-gui:gui *gui-state*)
+				     e)
+    (setq *gui-state* (modest-gui:copy-gui-state *gui-state*
+						 :gui gui
+						 :assets assets))))
+(defun gui-end-frame! (events)
+  (modest-gui:events-processed! events *gui-state*)
+  (setq *gui-state*
+	(modest-gui:gui-state-assets-replaced! *gui-state*)))
+
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
     (init!)
@@ -961,52 +1047,64 @@
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (modest-gui:e-collapsable
-		 (modest-gui:vbox
-		  :elements
-		  (list
-		   (instruction-e-list)
-		   (modest-gui:e-button :id :step-button :text "Step")))
-		 :text "Disassembly"
-		 :collapsed? nil))
-	   (gui-state (modest-gui:make-gui-state gui assets ())))
+	   (gui (modest-gui:hbox
+		 :elements
+		 (list
+		  (modest-gui:e-collapsable
+		   (modest-gui:vbox
+		    :elements
+		    (list
+		     (instruction-e-list)
+		     (modest-gui:e-button :id :step-button :text "Step")))
+		   :text "Disassembly"
+		   :collapsed? nil)
+		  (cpu-regs-e)))))
 
-      (setq gui-state (modest-gui:gui-state-created! gui-state))
+      (setq *gui-state* (modest-gui:gui-state-created!
+			 (modest-gui:make-gui-state gui assets ())))
       (unwind-protect
 	   (progn
 	     (modest-gui:register-handler!
 	      'modest-gui:clicked-event
 	      :step-button
 	      (lambda (gui-state event)
-		(declare (ignore event))
+		(declare (ignore gui-state event))
 		(let ((pc *pc*))
 		  (exec-instr!)
 		  (push-instr! pc *disassembled-instr*))
-		(multiple-value-bind (gui assets) (modest-gui:replace-element!
-						   (modest-gui:assets gui-state)
-						   (modest-gui:gui gui-state)
-						   (instruction-e-list))
-		  (modest-gui:copy-gui-state gui-state
-					     :gui gui
-					     :assets assets))))
+
+		(gui-state-replace-element! (instruction-e-list))
+		(gui-state-replace-element! (cpu-regs-e))
+		*gui-state*))
+
+	     (modest-gui:register-handler!
+	      'modest-gui:changed-event
+	      :reg-base
+	      (lambda (gui-state event)
+		(declare (ignore gui-state))
+
+		(setq *reg-base* (nth
+				  (modest-gui:selected-option-idx
+				   (modest-gui:element event))
+				  *reg-bases*))
+		(gui-state-replace-element! (instruction-e-list))
+		(gui-state-replace-element! (cpu-regs-e))
+		*gui-state*))
 	     
 	     (ssdl:enable-text-input)
 	     (modest-gui:main-loop (input frames)
 	       (let ((drawings ())
-		     (events ()))
+		     (gui-events ()))
 		 (appendf drawings (modest-gui:cursor-drawings input))
-
-		 (setq gui-state
+		 
+		 (setq *gui-state*
 		       (modest-gui:gui-state-update-applied!
-			gui-state input 0 (v0) drawings events))
+			*gui-state* input 0 (v0) drawings gui-events))
 
 		 (modest-gui:draw-drawings! drawings)
 
-		 (setq gui-state
-		       (modest-gui:events-processed! events gui-state))
-		 (setq gui-state
-		       (modest-gui:gui-state-assets-replaced! gui-state)))))
-	(modest-gui:gui-state-assets-freed! gui-state))
+		 (gui-end-frame! gui-events))))
+	(modest-gui:gui-state-assets-freed! *gui-state*))
       (values))))
 
 (defparameter *font-asset*
@@ -1014,4 +1112,5 @@
    :font-text
    nil
    (namestring
-    (modest-pathnames:application-file-pathname "DejaVuSans.ttf" :modest)) 14))
+    (modest-pathnames:application-file-pathname "FiraMono-Regular.otf" :gb-emulator))
+   14))
