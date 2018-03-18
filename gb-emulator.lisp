@@ -1003,7 +1003,7 @@
   (push (cons pc disassembled-instr) *instr-history*))
 
 (defun instruction-e-list ()
-  (modest-gui:e-list
+  (e-list
    (mapcar
     (lambda (instr)
       (format nil "~&#x~4,'0x: ~A"
@@ -1023,61 +1023,95 @@
 		 (logand #xf (ash val -8))
 		 (logand #xf (ash val -4))
 		 (logand #xf val))
-	 (format nil "b~4,'0b ~4,'0b          "
+	 (format nil "b~4,'0b ~4,'0b "
 		 (logand #xf (ash val -4))
 		 (logand #xf val))))
     (:decimal
      (if 16-bit?
 	 (format nil " ~5,' d (~6,' d)" val (s16 val))
-	 (format nil " ~3,' d   (~4,' d)  " val (s8 val))))
+	 (format nil " ~3,' d (~4,' d) " val (s8 val))))
     (:hex
      (if 16-bit?
 	 (format nil "x~4,'0x" val)
 	 (format nil "x~2,'0x  " val)))))
 
-(defun reg-text (reg-name val 16-bit? base)
-  (format nil "~A: ~A" reg-name (byte-text val 16-bit? base)))
+(defun reg-text-e (reg-name val 16-bit? base)
+  (let ((aff? (member reg-name *affected-regs*)))
+    (e-text
+     :text
+     (format nil "~2A: ~A" reg-name (byte-text val 16-bit? base))
+     :color (if aff?
+		(modest-drawing:red)
+		(modest-drawing:black)))))
 
-(defvar *reg-base* :decimal)
+(defun flag-text-e ()
+  (hbox
+   :elements
+   (list
+    (e-text
+     :text "F : ")
+    (e-text
+     :text (if (zero-set?) "Z" "z")
+     :color (if (member :zero *affected-flags*)
+		(modest-drawing:red)
+		(modest-drawing:black)))
+    (e-text
+     :text (if (negative-set?) "N" "n")
+     :color (if (member :negative *affected-flags*)
+		(modest-drawing:red)
+		(modest-drawing:black)))
+    (e-text
+     :text (if (half-carry-set?) "H" "h")
+     :color (if (member :half-carry *affected-flags*)
+		(modest-drawing:red)
+		(modest-drawing:black)))
+    (e-text
+     :text (if (carry-set?) "C" "c")
+     :color (if (member :carry *affected-flags*)
+		(modest-drawing:red)
+		(modest-drawing:black))))))
+
+(defvar *reg-base* :hex)
 (defparameter *reg-bases* '(:hex :binary :decimal))
 
 ;; TODO: mark which regs have changed
 ;; button to cycle base 2,10,16
 (defun cpu-regs-e ()
   ;; Create element
-  (modest-gui:e-collapsable
-   (modest-gui:vbox
+  (e-collapsable
+   (vbox
     :elements
-    (list (modest-gui:e-text :text (reg-text "PC" *pc* t :hex))
-	  (modest-gui:e-text :text (reg-text "SP" *sp* t :hex))
-	  (modest-gui:hbox
+    (list (reg-text-e :pc *pc* t :hex)
+	  (reg-text-e :sp *sp* t :hex)
+	  (hbox
 	   :elements
 	   (list
-	    (modest-gui:e-text :text (reg-text "A " *a* nil *reg-base*))
-	    (modest-gui:e-text :text (reg-text "AF" (af) t *reg-base*))))
-	  (modest-gui:hbox
+	    (reg-text-e :a *a* nil *reg-base*)
+	    (reg-text-e :af (af) t *reg-base*)))
+	  (hbox
 	   :elements
 	   (list
-	    (modest-gui:e-text :text (reg-text "B " *b* nil *reg-base*))
-	    (modest-gui:e-text :text (reg-text "BC" (bc) t *reg-base*))))
-	  (modest-gui:e-text :text (reg-text "C " *c* nil *reg-base*))
-	  (modest-gui:hbox
+	    (reg-text-e :b *b* nil *reg-base*)
+	    (reg-text-e :bc (bc) t *reg-base*)))
+	  (reg-text-e :c *c* nil *reg-base*)
+	  (hbox
 	   :elements
 	   (list
-	    (modest-gui:e-text :text (reg-text "D " *d* nil *reg-base*))
-	    (modest-gui:e-text :text (reg-text "DE" (de) t *reg-base*))))
-	  (modest-gui:e-text :text (reg-text "E " *e* nil *reg-base*))
-	  (modest-gui:e-text :text (reg-text "F " *f* nil *reg-base*))
-	  (modest-gui:hbox
+	    (reg-text-e :d *d* nil *reg-base*)
+	    (reg-text-e :de (de) t *reg-base*)))
+	  (reg-text-e :e *e* nil *reg-base*)
+	  ;;(reg-text-e :f *f* nil *reg-base*)
+	  (flag-text-e)
+	  (hbox
 	   :elements
 	   (list
-	    (modest-gui:e-text :text (reg-text "H " *h* nil *reg-base*))
-	    (modest-gui:e-text :text (reg-text "HL" (hl) t *reg-base*))))
-	  (modest-gui:e-text :text (reg-text "L " *l* nil *reg-base*))
-	  (modest-gui:e-radio-button '("Hex" "Bin" "Dec")
-				     :id :reg-base
-				     :selected-option-idx
-				     (position *reg-base* *reg-bases*))))
+	    (reg-text-e :h *h* nil *reg-base*)
+	    (reg-text-e :hl (hl) t *reg-base*)))
+	  (reg-text-e :l *l* nil *reg-base*)
+	  (e-radio-button '("Hex" "Bin" "Dec")
+			  :id :reg-base
+			  :selected-option-idx
+			  (position *reg-base* *reg-bases*))))
    :id :cpu
    :text "CPU"))
 
@@ -1085,8 +1119,8 @@
 
 (defun gui-state-replace-element! (e)
   (multiple-value-bind (gui assets) (modest-gui:replace-element!
-				     (modest-gui:assets *gui-state*)
-				     (modest-gui:gui *gui-state*)
+				     (assets *gui-state*)
+				     (gui *gui-state*)
 				     e)
     (setq *gui-state* (modest-gui:copy-gui-state *gui-state*
 						 :gui gui
@@ -1098,13 +1132,13 @@
 
 (defun selected-instr ()
   (when (plusp (length *instr-history*))
-    (let ((instrs-e (modest-gui:find-element (modest-gui:gui *gui-state*)
+    (let ((instrs-e (modest-gui:find-element (gui *gui-state*)
 					     :disassembled-instrs)))
       (nth (modest-gui:selected-idx instrs-e) *instr-history*))))
 
 (defun selected-disassembled-instr-e ()
   (let ((instr (selected-instr)))
-    (modest-gui:e-text
+    (e-text
      :id :disassembled-instr-text
      :text (format nil "Instr: ~A"
 		   (if instr
@@ -1120,24 +1154,26 @@
   (ssdl:with-init "GameBoy" 960 640
     (init!)
     (setq *instr-history* ())
+    (setq *affected-regs* ()
+	  *affected-flags* ())
     (load-rom! *tetris-filename*)
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (modest-gui:vbox
+	   (gui (vbox
 		 :elements
 		 (list
-		  (modest-gui:hbox
+		  (hbox
 		   :elements
 		   (list
-		    (modest-gui:e-collapsable
-		     (modest-gui:vbox
+		    (e-collapsable
+		     (vbox
 		      :elements
 		      (list
-		       (modest-gui:e-scroll-view
+		       (e-scroll-view
 			(instruction-e-list)
 			:window-dims (make-v 200 240))
-		       (modest-gui:e-button :id :step-button :text "Step")))
+		       (e-button :id :step-button :text "Step")))
 		     :text "Disassembly"
 		     :collapsed? nil)
 		    (cpu-regs-e)))
