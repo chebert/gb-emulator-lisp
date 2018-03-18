@@ -1088,6 +1088,30 @@
     (perform-alu-op! alu-op n)
     (inc-pc! size)))
 
+;; LD (adr), A
+;; 1110 1010
+(defun ld-n-a? (b1)
+  (bits-match? b1
+	       #b11101010
+	       #b00010000))
+(defun ld-n-a! (b1 b2 b3)
+  (let* ((size 3)
+	 (lsb b2)
+	 (msb b3)
+	 (adr (u16 msb lsb))
+	 (dir (extract-bits b1 4 1))
+	 (cycle-count 16))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :ld
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :adr adr
+		  :dir (aref #(:register-to-memory :memory-to-register) dir))))
+    (mem-byte-set! adr *a*)
+    (inc-pc! size)))
+
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (setq *affected-regs* ()
@@ -1106,6 +1130,7 @@
       ((ld-r1-r2? b1) (ld-r1-r2! b1 b2 b3))
       ((ld-a-r? b1) (ld-a-r! b1 b2 b3))
       ((ld-dest-n? b1) (ld-dest-n! b1 b2 b3))
+      ((ld-n-a? b1) (ld-n-a! b1 b2 b3))
 
       ;; Stack ops
       ((push/pop-r? b1) (push/pop-r! b1 b2 b3))
@@ -1132,7 +1157,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#x40))
+(defparameter *breakpoints* '(#x51 #x55))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
