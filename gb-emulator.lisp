@@ -442,7 +442,19 @@
   (ecase alu-op
     (:add (not-implemented "add"))
     (:adc (not-implemented "adc"))
-    (:sub (not-implemented "sub"))
+    (:sub
+     (let ((result (- *a* byte)))
+       (if (zerop result)
+	   (zero-set!)
+	   (zero-clear!))
+       (negative-set!)
+       (if (borrow? *a* byte)
+	   (carry-clear!)
+	   (carry-set!))
+       (if (half-borrow? *a* byte)
+	   (half-carry-clear!)
+	   (half-carry-set!))
+       (set-dest-reg! :a result)))
     (:sbc (not-implemented "sbc"))
     (:and (not-implemented "and"))
     (:xor
@@ -622,6 +634,23 @@
 			 (0 :a-to-hl)
 			 (1 :hl-to-a)))))
     (inc-pc! size)))
+
+(defun jr-n? (b1)
+  (= b1 #b00011000))
+(defun jr-n! (b1 b2 b3)
+  (let* ((size 2)
+	 (n (s8 b2))
+	 (adr (+ *pc* n size))
+	 (cycle-count 8))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :jr
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :n n :adr adr)))
+
+    (set-pc! adr)))
 
 (defun jr-cond-n? (b1)
   (bits-match? b1
@@ -1088,8 +1117,6 @@
     (perform-alu-op! alu-op n)
     (inc-pc! size)))
 
-;; LD (adr), A
-;; 1110 1010
 (defun ld-n-a? (b1)
   (bits-match? b1
 	       #b11101010
@@ -1146,6 +1173,7 @@
 
       ;; Jumps/Calls
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
+      ((jr-n? b1) (jr-n! b1 b2 b3))
       ((call-n? b1) (call-n! b1 b2 b3))
       ((ret? b1) (ret! b1 b2 b3))
 
@@ -1157,7 +1185,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#x51 #x55))
+(defparameter *breakpoints* '(#xf3))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
@@ -1171,6 +1199,11 @@
 
 ;; TODO: save disassembled instructions, and match them in automated test
 ;; TODO: set/clear flags function
+;; TODO: Stuck waiting for screen frame #xff44 = #x90 (vblank)
+
+;; v-blank
+#+nil
+(mem-byte-set! #xff44 #x90)
 
 (defparameter *tetris-filename* "roms/Tetris (World).gb")
 
@@ -1212,25 +1245,28 @@
    :id :disassembled-instrs))
 
 (defun byte-text (val 16-bit? base)
-  (ecase base
-    (:binary
-     (if 16-bit?
-	 (format nil "b~4,'0b ~4,'0b ~4,'0b ~4,'0b"
-		 (logand #xf (ash val -12))
-		 (logand #xf (ash val -8))
-		 (logand #xf (ash val -4))
-		 (logand #xf val))
-	 (format nil "b~4,'0b ~4,'0b "
-		 (logand #xf (ash val -4))
-		 (logand #xf val))))
-    (:decimal
-     (if 16-bit?
-	 (format nil " ~5,' d (~6,' d)" val (s16 val))
-	 (format nil " ~3,' d (~4,' d) " val (s8 val))))
-    (:hex
-     (if 16-bit?
-	 (format nil "x~4,'0x" val)
-	 (format nil "x~2,'0x  " val)))))
+  (let ((val (if 16-bit?
+		 (logand #xffff val)
+		 (logand #xff val))))
+    (ecase base
+      (:binary
+       (if 16-bit?
+	   (format nil "b~4,'0b ~4,'0b ~4,'0b ~4,'0b"
+		   (logand #xf (ash val -12))
+		   (logand #xf (ash val -8))
+		   (logand #xf (ash val -4))
+		   (logand #xf val))
+	   (format nil "b~4,'0b ~4,'0b "
+		   (logand #xf (ash val -4))
+		   (logand #xf val))))
+      (:decimal
+       (if 16-bit?
+	   (format nil " ~5,' d (~6,' d)" val (s16 val))
+	   (format nil " ~3,' d (~4,' d) " val (s8 val))))
+      (:hex
+       (if 16-bit?
+	   (format nil "x~4,'0x" val)
+	   (format nil "x~2,'0x  " val))))))
 
 (defun reg-text-e (reg-name val 16-bit? base)
   (let ((aff? (member reg-name *affected-regs*)))
@@ -1342,6 +1378,9 @@
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
     (init!)
+    ;; DEBUG: set the v-blank
+    (mem-byte-set! #xff44 #x90)
+
     (setq *instr-history* ())
     (setq *affected-regs* ()
 	  *affected-flags* ())
