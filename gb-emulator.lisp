@@ -977,6 +977,7 @@
 ;; TODO: Breakpoints
 ;; TODO: show memory
 ;; TODO: create disassembly
+;; TODO: show next instruction
 
 (defun rotate-a-carry? (b1)
   (bits-match? b1
@@ -1009,6 +1010,32 @@
       (1 (not-implemented "RRA not implemented")))
     (inc-pc! size)))
 
+;; 0010 0011
+(defun inc/dec-reg? (b1)
+  (bits-match? b1
+	       #b00000011
+	       #b00111000))
+(defun inc/dec-reg! (b1 b2 b3)
+  ;; no flags 
+  (let* ((size 1)
+	 (reg (extract-reg b1 4))
+	 (adr (reg reg))
+	 (byte (mem-byte adr))
+	 (inc? (zerop (extract-bits b1 3 1)))
+	 (cycle-count 8))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   (if inc? :inc :dec)
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :reg reg)))
+    (let ((result (if inc?
+		      (1+ byte)
+		      (1- byte))))
+      (mem-byte-set! adr result))
+    (inc-pc! size)))
+
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (setq *affected-regs* ()
@@ -1035,6 +1062,7 @@
       ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((dec-dest? b1) (dec-dest! b1 b2 b3))
+      ((inc/dec-reg? b1) (inc/dec-reg! b1 b2 b3))
       ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
       ((rotate-a-carry? b1) (rotate-a-carry! b1 b2 b3))
 
@@ -1050,7 +1078,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#x28 #x2b))
+(defparameter *breakpoints* '(#x28 #xa3))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
