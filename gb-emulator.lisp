@@ -931,11 +931,48 @@
 	   (alist :reg reg)))
     (ecase type
       (0
-       (stack-push! *b*)
-       (stack-push! *c*))
+       (let ((c (stack-pop!))
+	     (b (stack-pop!)))
+	 (set-bc! b c)))
       (1
-       (set-dest-reg! :c (stack-pop!))
-       (set-dest-reg! :b (stack-pop!))))
+       (stack-push! *b*)
+       (stack-push! *c*)))
+    (inc-pc! size)))
+
+;; TODO: Breakpoints
+;; TODO: show memory
+;; PC: #x00A0
+;; 0000 0101
+
+(defun rotate-a-carry? (b1)
+  (bits-match? b1
+	       #b00010111
+	       #b00001000))
+(defun rotate-a-carry! (b1 b2 b3)
+  (let* ((size 1)
+	 (dir (extract-bits b1 3 1))
+	 (cycle-count 4))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   (aref #(:rla :rra) dir)
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :a *a*)))
+    (ecase dir
+      (0 ;; rla
+       (let* ((byte *a*)
+	      (res (rotate-left-through-carry byte (carry-bit))))
+	 (set-dest-reg! :a res)
+	 (if (zerop res)
+	     (zero-set!)
+	     (zero-clear!))
+	 (negative-clear!)
+	 (half-carry-clear!)
+	 (if (rotate-left-carry-bit byte)
+	     (carry-set!)
+	     (carry-clear!))))
+      (1 (not-implemented "RRA not implemented")))
     (inc-pc! size)))
 
 (defvar *disassembled-instr*)
@@ -964,6 +1001,7 @@
       ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
+      ((rotate-a-carry? b1) (rotate-a-carry! b1 b2 b3))
 
       ;; Jumps/Calls
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
