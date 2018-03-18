@@ -477,6 +477,8 @@
   (not (zerop (logand #x10
 		      (+ (logand #xf byte)
 			 (logand #xf addend))))))
+(defun half-borrow? (byte subtracthend)
+  (minusp (- (logand #xf byte) (logand #xf subtracthend))))
 
 (defun bits-match? (bp1 bp2 either-mask)
   (= (logior bp1 either-mask) (logior bp2 either-mask)))
@@ -620,10 +622,10 @@
 	   b1 b2 b3
 	   size
 	   cycle-count
-	   (alist :cond cnd :n n :adr (- *pc* n))))
+	   (alist :cond cnd :n n :adr (+ *pc* n size))))
     (cond
       ((test-cond cnd)
-       (inc-pc! n))
+       (inc-pc! (+ n size)))
       (t
        (inc-pc! size)))))
 
@@ -834,6 +836,39 @@
 	  (half-carry-clear!)))
     (inc-pc! size)))
 
+(defun dec-dest? (b1)
+  (bits-match? b1
+	       #b00000101
+	       #b00111000))
+(defun dec-dest! (b1 b2 b3)
+  (let* ((size 1)
+	 (dest-reg (extract-dest-reg b1 3))
+	 (cycle-count (if (eq dest-reg :hl)
+			  12
+			  4)))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :dec
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :dest-reg
+		  (cons dest-reg (dest-reg dest-reg)))))
+    (let* ((byte (dest-reg dest-reg))
+	   (result (1- byte)))
+      (set-dest-reg! dest-reg result)
+      (if (zerop result)
+	  (zero-set!)
+	  (zero-clear!))
+      (negative-set!)
+      (if (half-borrow? byte 1)
+	  (half-carry-clear!)
+	  ;; Set if no borrow
+	  (half-carry-set!))
+      ;; carry not affected
+      )
+    (inc-pc! size)))
+
 (defun ld-r1-r2? (b1)
   (bits-match? b1
 	       #b01000000
@@ -941,8 +976,7 @@
 
 ;; TODO: Breakpoints
 ;; TODO: show memory
-;; PC: #x00A0
-;; 0000 0101
+;; TODO: create disassembly
 
 (defun rotate-a-carry? (b1)
   (bits-match? b1
@@ -1000,6 +1034,7 @@
       ;; Arithmetic/Bit ops
       ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
+      ((dec-dest? b1) (dec-dest! b1 b2 b3))
       ((16-bit-op? b1) (16-bit-op! b1 b2 b3))
       ((rotate-a-carry? b1) (rotate-a-carry! b1 b2 b3))
 
@@ -1014,6 +1049,18 @@
 			(logand b1 #xf)
 			b1))))
   :done)
+
+(defparameter *breakpoints* '(#x28 #x2b))
+(defun continue-exec-instr! ()
+  (let ((done? nil))
+    (loop until done?
+       do
+	 (let ((pc *pc*))
+	   (exec-instr!)
+	   (push-instr! pc *disassembled-instr*)
+	   (setq done? (or (not (typep *disassembled-instr*
+				       'disassembled-instr))
+			   (member pc *breakpoints*)))))))
 
 ;; TODO: save disassembled instructions, and match them in automated test
 ;; TODO: set/clear flags function
@@ -1239,14 +1286,7 @@
 	      :continue-button
 	      (lambda (gui-state event)
 		(declare (ignore gui-state event))
-		(let ((done? nil))
-		  (loop until done?
-		     do
-		       (let ((pc *pc*))
-			 (exec-instr!)
-			 (push-instr! pc *disassembled-instr*)
-			 (setq done? (not (typep *disassembled-instr*
-						 'disassembled-instr))))))
+		(continue-exec-instr!)
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
