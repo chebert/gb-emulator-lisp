@@ -260,36 +260,70 @@
   :done)
 
 (defun stack-push! (byte)
+  (push :sp *affected-regs*)
   (decf *sp*)
   (mem-byte-set! *sp* byte))
 (defun stack-top ()
   (mem-byte *sp*))
 (defun stack-pop! ()
+  (push :sp *affected-regs*)
   (let ((b (stack-top)))
     (incf *sp*)
     b))
 
-;; F: ZNHC0000
+(defun set-pc! (adr)
+  (push :pc *affected-regs*)
+  (setq *pc* adr))
+(defun inc-pc! (amt)
+  (set-pc! (+ *pc* amt)))
 
-(defun carry-set! () (setq *f* (logior #x10 *f*)))
+;; F: ZNHC0000
+(defvar *affected-regs*)
+(defvar *affected-flags*)
+
+(defun carry-set! ()
+  (push :f *affected-regs*)
+  (push :carry *affected-flags*)
+  (setq *f* (logior #x10 *f*)))
 (defun carry-set? () (not (carry-clear?)))
-(defun carry-clear! () (setq *f* (logand (lognot #x10) *f*)))
+(defun carry-clear! ()
+  (push :f *affected-regs*)
+  (push :carry *affected-flags*)
+  (setq *f* (logand (lognot #x10) *f*)))
 (defun carry-clear? () (zerop (logand #x10 *f*)))
 (defun carry-bit () (if (carry-clear?) 0 1))
 
-(defun half-carry-set! () (setq *f* (logior #x20 *f*)))
+(defun half-carry-set! ()
+  (push :f *affected-regs*)
+  (push :half-carry *affected-flags*)
+  (setq *f* (logior #x20 *f*)))
 (defun half-carry-set? () (not (half-carry-clear?)))
-(defun half-carry-clear! () (setq *f* (logand (lognot #x20) *f*)))
+(defun half-carry-clear! ()
+  (push :f *affected-regs*)
+  (push :half-carry *affected-flags*)
+  (setq *f* (logand (lognot #x20) *f*)))
 (defun half-carry-clear? () (zerop (logand #x20 *f*)))
 
-(defun negative-set! () (setq *f* (logior #x40 *f*)))
+(defun negative-set! ()
+  (push :f *affected-regs*)
+  (push :negative *affected-flags*)
+  (setq *f* (logior #x40 *f*)))
 (defun negative-set? () (not (negative-clear?)))
-(defun negative-clear! () (setq *f* (logand (lognot #x40) *f*)))
+(defun negative-clear! ()
+  (push :f *affected-regs*)
+  (push :negative *affected-flags*)
+  (setq *f* (logand (lognot #x40) *f*)))
 (defun negative-clear? () (zerop (logand #x40 *f*)))
 
-(defun zero-set! () (setq *f* (logior #x80 *f*)))
+(defun zero-set! ()
+  (push :f *affected-regs*)
+  (push :zero *affected-flags*)
+  (setq *f* (logior #x80 *f*)))
 (defun zero-set? () (not (zero-clear?)))
-(defun zero-clear! () (setq *f* (logand (lognot #x80) *f*)))
+(defun zero-clear! ()
+  (push :f *affected-regs*)
+  (push :zero *affected-flags*)
+  (setq *f* (logand (lognot #x80) *f*)))
 (defun zero-clear? () (zerop (logand #x80 *f*)))
 
 (defun s8 (u8)
@@ -331,15 +365,19 @@
 	     (byte-lo hl))))
 
 (defun set-bc! (msb lsb)
+  (appendf *affected-regs* (list :b :c :bc))
   (setq *b* msb
 	*c* lsb))
 (defun set-de! (msb lsb)
+  (appendf *affected-regs* (list :d :e :de))
   (setq *d* msb
 	*e* lsb))
 (defun set-hl! (msb lsb)
+  (appendf *affected-regs* (list :h :l :hl))
   (setq *h* msb
 	*l* lsb))
 (defun set-af! (msb lsb)
+  (appendf *affected-regs* (list :a :f :af))
   (setq *a* msb
 	*f* lsb))
 (defun set-reg! (reg msb lsb)
@@ -347,7 +385,8 @@
     (:bc (set-bc! msb lsb))
     (:de (set-de! msb lsb))
     (:hl (set-hl! msb lsb))
-    (:sp (setq *sp* (u16 msb lsb)))
+    (:sp (push :sp *affected-regs*)
+	 (setq *sp* (u16 msb lsb)))
     (:af (set-af! msb lsb))))
 (defun reg (reg)
   (ecase reg
@@ -370,14 +409,30 @@
     (:hl (mem-byte (hl)))))
 (defun set-dest-reg! (reg byte)
   (ecase reg
-    (:a (setq *a* byte))
-    (:b (setq *b* byte))
-    (:c (setq *c* byte))
-    (:d (setq *d* byte))
-    (:e (setq *e* byte))
-    (:f (setq *f* byte))
-    (:h (setq *h* byte))
-    (:l (setq *l* byte))
+    (:a
+     (push :a *affected-regs*)
+     (setq *a* byte))
+    (:b
+     (push :b *affected-regs*)
+     (setq *b* byte))
+    (:c
+     (push :c *affected-regs*)
+     (setq *c* byte))
+    (:d
+     (push :d *affected-regs*)
+     (setq *d* byte))
+    (:e
+     (push :e *affected-regs*)
+     (setq *e* byte))
+    (:f
+     (push :f *affected-regs*)
+     (setq *f* byte))
+    (:h
+     (push :h *affected-regs*)
+     (setq *h* byte))
+    (:l
+     (push :l *affected-regs*)
+     (setq *l* byte))
     (:hl (mem-byte-set! (hl) byte))))
 
 (defun mem-pc-byte ()
@@ -391,7 +446,7 @@
     (:sbc (error "not implemented"))
     (:and (error "not implemented"))
     (:xor
-     (setq *a* (logxor *a* (dest-reg dest-reg)))
+     (set-dest-reg! :a (logxor *a* (dest-reg dest-reg)))
      
      (carry-clear!)
      (negative-clear!)
@@ -480,7 +535,7 @@
 				   12
 				   (alist :reg reg :adr (u16 msb lsb))))
     (set-reg! reg msb lsb)
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun nop? (b1)
   (= b1 #x00))
@@ -490,7 +545,7 @@
 	(cycle-count 4))
     (setq *disassembled-instr*
 	  (make-disassembled-instr :nop b1 b2 b3 size cycle-count ()))
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun alu-op-d? (b1)
   (bits-match? b1
@@ -513,7 +568,7 @@
 		  (cons dest-reg (dest-reg dest-reg)))))
 
     (perform-alu-op! alu-op dest-reg)
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun ld-hl-a? (b1)
   (bits-match? b1
@@ -531,7 +586,7 @@
        (mem-byte-set! (hl) *a*))
       (1
        ;; from hl into a
-       (setq *a* (mem-byte (hl)))))
+       (set-dest-reg! :a (mem-byte (hl)))))
     (ecase op-type
       (0 (incr-hl!))
       (1 (decr-hl!)))
@@ -546,7 +601,7 @@
 	   (alist :dir (ecase dir
 			 (0 :a-to-hl)
 			 (1 :hl-to-a)))))
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun jr-cond-n? (b1)
   (bits-match? b1
@@ -567,9 +622,9 @@
 	   (alist :cond cnd :n n :adr (- *pc* n))))
     (cond
       ((test-cond cnd)
-       (incf *pc* n))
+       (inc-pc! n))
       (t
-       (incf *pc* size)))))
+       (inc-pc! size)))))
 
 (defun ld-dest-n? (b1)
   (bits-match? b1
@@ -593,7 +648,7 @@
 		  :dest-reg
 		  (cons dest-reg (dest-reg dest-reg)))))
     (set-dest-reg! dest-reg n)
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun byte-bit (byte idx)
   (logand 1 (ash byte (- idx))))
@@ -659,7 +714,7 @@
 	 (if (zerop res)
 	     (zero-set!)
 	     (zero-clear!)))
-       (incf *pc* size)))
+       (inc-pc! size)))
 
     ((bits-match? b2 #b00100000 #b00001111)
      (not-implemented "not implemented"))
@@ -682,7 +737,7 @@
 	      (alist :n n
 		     :dest-reg (cons dest-reg (dest-reg dest-reg)))))
        (bit-test! n dest-reg)
-       (incf *pc* size)))
+       (inc-pc! size)))
     ((bits-match? b2 #b10000000 #b00111111)
      (not-implemented "not implemented"))
     ((bits-match? b2 #b11000000 #b00111111)
@@ -714,8 +769,8 @@
       (0 ;; A -> (C)
        (mem-byte-set! adr *a*))
       (1 ;; (C) -> A
-       (setq *a* (mem-byte adr))))
-    (incf *pc* size)))
+       (set-dest-reg! :a (mem-byte adr))))
+    (inc-pc! size)))
 
 (defun ld-a-n? (b1)
   (bits-match? b1
@@ -743,8 +798,8 @@
       (0 ;; A -> (n)
        (mem-byte-set! adr *a*))
       (1 ;; (n) -> A
-       (setq *a* (mem-byte adr))))
-    (incf *pc* size)))
+       (set-dest-reg! :a (mem-byte adr))))
+    (inc-pc! size)))
 
 (defun inc-dest? (b1)
   (bits-match? b1
@@ -775,7 +830,7 @@
       (if (half-carry? byte 1)
 	  (half-carry-set!)
 	  (half-carry-clear!)))
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun ld-r1-r2? (b1)
   (bits-match? b1
@@ -799,7 +854,7 @@
 	   (alist :from-reg (cons r2 (dest-reg r2))
 		  :dest-reg (cons r1 (dest-reg r1)))))
     (set-dest-reg! r1 (dest-reg r2))
-    (incf *pc* size)))
+    (inc-pc! size)))
 
 (defun ld-a-r? (b1)
   (bits-match? b1
@@ -825,8 +880,8 @@
       (0 ;; a -> (r)
        (mem-byte-set! adr *a*))
       (1 ;; (r) -> a
-       (setq *a* (mem-byte adr))))
-    (incf *pc* size)))
+       (set-dest-reg! :a (mem-byte adr))))
+    (inc-pc! size)))
 
 (defun call-n? (b1)
   (= b1 #b11001101))
@@ -847,7 +902,7 @@
     (let ((next-pc (+ *pc* size)))
       (stack-push! (lsb next-pc))
       (stack-push! (msb next-pc))
-      (setq *pc* adr))))
+      (set-pc! adr))))
 
 (defun push/pop-r? (b1)
   (bits-match? b1
@@ -877,12 +932,14 @@
        (stack-push! *b*)
        (stack-push! *c*))
       (1
-       (setq *c* (stack-pop!))
-       (setq *b* (stack-pop!))))
-    (incf *pc* size)))
+       (set-dest-reg! :c (stack-pop!))
+       (set-dest-reg! :b (stack-pop!))))
+    (inc-pc! size)))
 
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
+  (setq *affected-regs* ()
+	*affected-flags* ())
   (let ((b1 (mem-pc-byte))
 	(b2 (mem-byte (+ *pc* 1)))
 	(b3 (mem-byte (+ *pc* 2))))
@@ -1054,7 +1111,10 @@
 		       (disassembled-instr-string (cdr instr))
 		       "")))))
 
-
+;; GUI TODOs
+;; TODO: annotate which regs have been updated
+;; TODO: show colors for text
+;; TODO: show flags
 
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
