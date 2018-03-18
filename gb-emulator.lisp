@@ -1088,7 +1088,9 @@
 
 (defvar *instr-history*)
 (defun push-instr! (pc disassembled-instr)
-  (push (cons pc disassembled-instr) *instr-history*))
+  (setq *instr-history*
+	(subseq (push (cons pc disassembled-instr) *instr-history*)
+		0 (min 20 (length *instr-history*)))))
 
 (defun instruction-e-list ()
   (e-list
