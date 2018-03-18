@@ -438,15 +438,15 @@
 (defun mem-pc-byte ()
   (mem-byte *pc*))
 
-(defun perform-alu-op! (alu-op dest-reg)
+(defun perform-alu-op! (alu-op byte)
   (ecase alu-op
-    (:add (error "not implemented"))
-    (:adc (error "not implemented"))
-    (:sub (error "not implemented"))
-    (:sbc (error "not implemented"))
-    (:and (error "not implemented"))
+    (:add (not-implemented "add"))
+    (:adc (not-implemented "adc"))
+    (:sub (not-implemented "sub"))
+    (:sbc (not-implemented "sbc"))
+    (:and (not-implemented "and"))
     (:xor
-     (set-dest-reg! :a (logxor *a* (dest-reg dest-reg)))
+     (set-dest-reg! :a (logxor *a* byte))
      
      (carry-clear!)
      (negative-clear!)
@@ -454,8 +454,19 @@
      (if (zerop *a*)
 	 (zero-set!)
 	 (zero-clear!)))
-    (:or (error "not implemented"))
-    (:cp (error "not implemented"))))
+    (:or (not-implemented "or"))
+    (:cp
+     (let ((result (- *a* byte)))
+       (if (zerop result)
+	   (zero-set!)
+	   (zero-clear!))
+       (negative-set!)
+       (if (borrow? *a* byte)
+	   (carry-clear!)
+	   (carry-set!))
+       (if (half-borrow? *a* byte)
+	   (half-carry-clear!)
+	   (half-carry-set!))))))
 
 (defun bit-test! (n dest-reg)
   (let ((res (not (zerop (logand (ash 1 n) (dest-reg dest-reg))))))
@@ -473,6 +484,12 @@
     (:not-carry (carry-clear?))
     (:carry (carry-set?))))
 
+(defun carry? (byte addend)
+  (not (zerop (logand #x100
+		      (+ (logand #xff byte)
+			 (logand #xff addend))))))
+(defun borrow? (byte subtracthend)
+  (minusp (- (logand #xff byte) (logand #xff subtracthend))))
 (defun half-carry? (byte addend)
   (not (zerop (logand #x10
 		      (+ (logand #xf byte)
@@ -570,7 +587,7 @@
 	   (alist :dest-reg
 		  (cons dest-reg (dest-reg dest-reg)))))
 
-    (perform-alu-op! alu-op dest-reg)
+    (perform-alu-op! alu-op (dest-reg dest-reg))
     (inc-pc! size)))
 
 (defun ld-hl-a? (b1)
@@ -1018,8 +1035,7 @@
   ;; no flags 
   (let* ((size 1)
 	 (reg (extract-reg b1 4))
-	 (adr (reg reg))
-	 (byte (mem-byte adr))
+	 (val (reg reg))
 	 (inc? (zerop (extract-bits b1 3 1)))
 	 (cycle-count 8))
     (setq *disassembled-instr*
@@ -1030,9 +1046,9 @@
 	   cycle-count
 	   (alist :reg reg)))
     (let ((result (if inc?
-		      (1+ byte)
-		      (1- byte))))
-      (mem-byte-set! adr result))
+		      (1+ val)
+		      (1- val))))
+      (set-reg! reg (msb result) (lsb result)))
     (inc-pc! size)))
 
 (defun ret? (b1)
@@ -1052,7 +1068,25 @@
 	   (alist :adr adr)))
     (set-pc! adr)))
 
-;; CP: 1111 1110
+(defun alu-op-n? (b1)
+  (bits-match? b1
+	       #b11000110
+	       #b00111000))
+(defun alu-op-n! (b1 b2 b3)
+  (let* ((size 2)
+	 (n b2)
+	 (alu-op (aref *alu-ops* (extract-bits b1 3 3)))
+	 (cycle-count 8))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   alu-op
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :n n)))
+
+    (perform-alu-op! alu-op n)
+    (inc-pc! size)))
 
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
@@ -1078,6 +1112,7 @@
 
       ;; Arithmetic/Bit ops
       ((alu-op-d? b1) (alu-op-d! b1 b2 b3))
+      ((alu-op-n? b1) (alu-op-n! b1 b2 b3))
       ((inc-dest? b1) (inc-dest! b1 b2 b3))
       ((dec-dest? b1) (dec-dest! b1 b2 b3))
       ((inc/dec-reg? b1) (inc/dec-reg! b1 b2 b3))
@@ -1097,7 +1132,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#xa6))
+(defparameter *breakpoints* '(#x40))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
