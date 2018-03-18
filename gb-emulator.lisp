@@ -156,7 +156,6 @@
   *e* *f*
   *h* *l*
 
-  *bios-run?*
   ;; Memory Regions
   *bios-rom*
   *bank0-rom*
@@ -180,9 +179,12 @@
 	*mmap-i/o* (memory 128)
 	*z-ram* (memory 128)))
 
+(defun bios-run? ()
+  (= 1 (aref *mmap-i/o* #x50)))
+
 (defun mem-byte (addr)
   (cond
-    ((and (not *bios-run?*) (< addr #x100))
+    ((and (not (bios-run?)) (< addr #x100))
      (aref *bios-rom* addr))
     ((< addr #x4000)
      ;; bank0
@@ -214,7 +216,7 @@
 
 (defun mem-byte-set! (addr byte)
   (cond
-    ((and (not *bios-run?*) (< addr #x100))
+    ((and (not (bios-run?)) (< addr #x100))
      (setf (aref *bios-rom* addr) byte))
     ((< addr #x4000)
      ;; bank0
@@ -245,7 +247,6 @@
      (setf (aref *z-ram* (- addr #xff80)) byte))))
 
 (defun init! ()
-  (setq *bios-run?* nil)
   (setq *pc* 0)
   (setq *sp* 0)
   (setq *a* 0)
@@ -440,10 +441,22 @@
 
 (defun perform-alu-op! (alu-op byte)
   (ecase alu-op
-    (:add (not-implemented "add"))
-    (:adc (not-implemented "adc"))
+    (:add
+     (let ((result (logand #xff (+ *a* byte))))
+       (if (zerop result)
+	   (zero-set!)
+	   (zero-clear!))
+       (negative-clear!)
+       (if (carry? *a* byte)
+	   (carry-set!)
+	   (carry-clear!))
+       (if (half-carry? *a* byte)
+	   (half-carry-set!)
+	   (half-carry-clear!))
+       (set-dest-reg! :a result)))
+    (:ADC (not-implemented "adc"))
     (:sub
-     (let ((result (- *a* byte)))
+     (let ((result (logand #xff (- *a* byte))))
        (if (zerop result)
 	   (zero-set!)
 	   (zero-clear!))
@@ -468,7 +481,7 @@
 	 (zero-clear!)))
     (:or (not-implemented "or"))
     (:cp
-     (let ((result (- *a* byte)))
+     (let ((result (logand #xff (- *a* byte))))
        (if (zerop result)
 	   (zero-set!)
 	   (zero-clear!))
@@ -1185,7 +1198,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#xf3))
+(defparameter *breakpoints* '(#xf9))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
