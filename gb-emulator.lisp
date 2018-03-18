@@ -1010,7 +1010,6 @@
       (1 (not-implemented "RRA not implemented")))
     (inc-pc! size)))
 
-;; 0010 0011
 (defun inc/dec-reg? (b1)
   (bits-match? b1
 	       #b00000011
@@ -1035,6 +1034,25 @@
 		      (1- byte))))
       (mem-byte-set! adr result))
     (inc-pc! size)))
+
+(defun ret? (b1)
+  (= b1 #b11001001))
+(defun ret! (b1 b2 b3)
+  (let* ((size 1)
+	 (msb (stack-pop!))
+	 (lsb (stack-pop!))
+	 (adr (u16 msb lsb))
+	 (cycle-count 8))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :ret
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :adr adr)))
+    (set-pc! adr)))
+
+;; CP: 1111 1110
 
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
@@ -1069,6 +1087,7 @@
       ;; Jumps/Calls
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
       ((call-n? b1) (call-n! b1 b2 b3))
+      ((ret? b1) (ret! b1 b2 b3))
 
       (t
        (not-implemented "#x~4,'0x Z80 Opcode Not Implemented: ~4,'0B ~4,'0B #x~x"
@@ -1078,7 +1097,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#x28 #xa3))
+(defparameter *breakpoints* '(#xa6))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
