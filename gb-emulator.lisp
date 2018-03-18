@@ -478,8 +478,6 @@
 		      (+ (logand #xf byte)
 			 (logand #xf addend))))))
 
-;; TODO: Categorize instructions
-
 (defun bits-match? (bp1 bp2 either-mask)
   (= (logior bp1 either-mask) (logior bp2 either-mask)))
 
@@ -517,6 +515,9 @@
     (t
      (apply #'bin instr))))
 
+(defun extract-reg (byte low-idx)
+  (aref *regs* (extract-bits byte low-idx 2)))
+
 (defun ld-reg-imm16? (b1)
   (bits-match? b1
 	       #b00000001
@@ -527,7 +528,7 @@
   (let ((size 3)
 	(msb b3)
 	(lsb b2)
-	(reg (aref *regs* (extract-bits b1 4 2))))
+	(reg (extract-reg b1 4)))
     (setq *disassembled-instr*
 	  (make-disassembled-instr :ld
 				   b1 b2 b3
@@ -553,7 +554,7 @@
 	       #b00111111))
 (defun alu-op-d! (b1 b2 b3)
   (let* ((size 1)
-	 (dest-reg (aref *dest-regs* (extract-bits b1 0 3)))
+	 (dest-reg (extract-dest-reg b1 0))
 	 (alu-op (aref *alu-ops* (extract-bits b1 3 3)))
 	 (cycle-count (if (eq dest-reg :hl)
 			  8
@@ -634,7 +635,7 @@
   ;; no flags
   (let* ((size 2)
 	 (n b2)
-	 (dest-reg (aref *dest-regs* (extract-bits b1 3 3)))
+	 (dest-reg (extract-dest-reg b1 3))
 	 (cycle-count (if (eq dest-reg :hl)
 			  12
 			  8)))
@@ -668,6 +669,9 @@
 				   (mem-byte (+ *pc* 1))
 				   (mem-byte (+ *pc* 2)))))
 
+(defun extract-dest-reg (byte low-idx)
+  (aref *dest-regs* (extract-bits byte low-idx 3)))
+
 (defun 16-bit-op? (b1)
   (= b1 #b11001011))
 (defun 16-bit-op! (b1 b2 b3)
@@ -684,8 +688,7 @@
      ;; rotate r through carry (carry=old bit 7)
      (let* ((size 2)
 	    (dir (extract-bits b2 3 1))
-	    ;; TODO: dest-reg-name func
-	    (dest-reg (aref *dest-regs* (extract-bits b2 0 3)))
+	    (dest-reg (extract-dest-reg b2 0))
 	    (byte (dest-reg dest-reg))
 	    (cycle-count (if (eq dest-reg :hl)
 			     16
@@ -710,7 +713,6 @@
 		  (carry-set!))))
 	 (negative-clear!)
 	 (half-carry-clear!)
-	 ;; TODO: set/clear zero function
 	 (if (zerop res)
 	     (zero-set!)
 	     (zero-clear!)))
@@ -724,7 +726,7 @@
      ;; BIT n, dest
      (let* ((size 2)
 	    (n (extract-bits b2 3 3))
-	    (dest-reg (aref *dest-regs* (extract-bits b2 0 3)))
+	    (dest-reg (extract-dest-reg b2 0))
 	    (cycle-count (if (eq dest-reg :hl)
 			     16
 			     8)))
@@ -807,7 +809,7 @@
 	       #b00111000))
 (defun inc-dest! (b1 b2 b3)
   (let* ((size 1)
-	 (dest-reg (aref *dest-regs* (extract-bits b1 3 3)))
+	 (dest-reg (extract-dest-reg b1 3))
 	 (cycle-count (if (eq dest-reg :hl)
 			  12
 			  4)))
@@ -839,8 +841,8 @@
 (defun ld-r1-r2! (b1 b2 b3)
   ;; no flags
   (let* ((size 1)
-	 (r1 (aref *dest-regs* (extract-bits b1 3 3)))
-	 (r2 (aref *dest-regs* (extract-bits b1 0 3)))
+	 (r1 (extract-dest-reg b1 3))
+	 (r2 (extract-dest-reg b1 0))
 	 (cycle-count (if (or (eq r1 :hl)
 			      (eq r2 :hl))
 			  8
@@ -863,7 +865,7 @@
 (defun ld-a-r! (b1 b2 b3)
   ;; no flags
   (let* ((size 1)
-	 (reg (aref *regs* (extract-bits b1 4 1)))
+	 (reg (extract-reg b1 4))
 	 (adr (reg reg))
 	 (dir (extract-bits b1 3 1))
 	 (cycle-count 8))
@@ -911,7 +913,7 @@
 (defun push/pop-r! (b1 b2 b3)
   ;; no flags
   (let* ((size 1)
-	 (reg (aref *regs* (extract-bits b1 4 2)))
+	 (reg (extract-reg b1 4))
 	 (type (extract-bits b1 2 1))
 	 (cycle-count (ecase type
 			(0 ;;pop
@@ -976,6 +978,7 @@
   :done)
 
 ;; TODO: save disassembled instructions, and match them in automated test
+;; TODO: set/clear flags function
 
 (defparameter *tetris-filename* "roms/Tetris (World).gb")
 
@@ -1074,8 +1077,6 @@
 (defvar *reg-base* :hex)
 (defparameter *reg-bases* '(:hex :binary :decimal))
 
-;; TODO: mark which regs have changed
-;; button to cycle base 2,10,16
 (defun cpu-regs-e ()
   ;; Create element
   (e-collapsable
@@ -1144,11 +1145,6 @@
 		   (if instr
 		       (disassembled-instr-string (cdr instr))
 		       "")))))
-
-;; GUI TODOs
-;; TODO: annotate which regs have been updated
-;; TODO: show colors for text
-;; TODO: show flags
 
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
