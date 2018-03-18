@@ -1084,6 +1084,7 @@
     :elements
     (list (reg-text-e :pc *pc* t :hex)
 	  (reg-text-e :sp *sp* t :hex)
+	  (flag-text-e)
 	  (hbox
 	   :elements
 	   (list
@@ -1101,8 +1102,6 @@
 	    (reg-text-e :d *d* nil *reg-base*)
 	    (reg-text-e :de (de) t *reg-base*)))
 	  (reg-text-e :e *e* nil *reg-base*)
-	  ;;(reg-text-e :f *f* nil *reg-base*)
-	  (flag-text-e)
 	  (hbox
 	   :elements
 	   (list
@@ -1169,7 +1168,11 @@
 		       (e-scroll-view
 			(instruction-e-list)
 			:window-dims (make-v 200 240))
-		       (e-button :id :step-button :text "Step")))
+		       (hbox
+			:elements
+			(list
+			 (e-button :id :step-button :text "Step")
+			 (e-button :id :continue-button :text "Continue")))))
 		     :text "Disassembly"
 		     :collapsed? nil)
 		    (cpu-regs-e)))
@@ -1187,6 +1190,25 @@
 		(let ((pc *pc*))
 		  (exec-instr!)
 		  (push-instr! pc *disassembled-instr*))
+
+		(gui-state-replace-element! (instruction-e-list))
+		(gui-state-replace-element! (selected-disassembled-instr-e))
+		(gui-state-replace-element! (cpu-regs-e))
+		*gui-state*))
+
+	     (modest-gui:register-handler!
+	      'modest-gui:clicked-event
+	      :continue-button
+	      (lambda (gui-state event)
+		(declare (ignore gui-state event))
+		(let ((done? nil))
+		  (loop until done?
+		     do
+		       (let ((pc *pc*))
+			 (exec-instr!)
+			 (push-instr! pc *disassembled-instr*)
+			 (setq done? (not (typep *disassembled-instr*
+						 'disassembled-instr))))))
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
