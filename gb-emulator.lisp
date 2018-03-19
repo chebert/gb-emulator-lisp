@@ -215,6 +215,7 @@
      (aref *z-ram* (- addr #xff80)))))
 
 (defun mem-byte-set! (addr byte)
+  (push (cons addr byte) *memory-updates*)
   (cond
     ((and (not (bios-run?)) (< addr #x100))
      (setf (aref *bios-rom* addr) byte))
@@ -1155,7 +1156,8 @@
 (defvar *disassembled-instr*)
 (defun exec-instr! ()
   (setq *affected-regs* ()
-	*affected-flags* ())
+	*affected-flags* ()
+	*memory-updates* ())
   (let ((b1 (mem-pc-byte))
 	(b2 (mem-byte (+ *pc* 1)))
 	(b3 (mem-byte (+ *pc* 2))))
@@ -1388,15 +1390,27 @@
 		       (disassembled-instr-string (cdr instr))
 		       "")))))
 
+(defun memory-updates-e ()
+  (vbox
+   :id :memory-updates
+   :elements
+   (mapcar (lambda (u)
+	     (e-text :text (format nil "x~4,'0x: ~A"
+				   (car u)
+				   (byte-text (cdr u) nil *reg-base*))))
+	   *memory-updates*)))
+
+(defvar *memory-updates*)
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
+    (setq *affected-regs* ()
+	  *affected-flags* ()
+	  *memory-updates* ())
     (init!)
     ;; DEBUG: set the v-blank
     (mem-byte-set! #xff44 #x90)
 
     (setq *instr-history* ())
-    (setq *affected-regs* ()
-	  *affected-flags* ())
     (load-rom! *tetris-filename*)
 
     (modest-gui:init-event-handlers!)
@@ -1421,7 +1435,10 @@
 			 (e-button :id :continue-button :text "Continue")))))
 		     :text "Disassembly"
 		     :collapsed? nil)
-		    (cpu-regs-e)))
+		    (cpu-regs-e)
+		    (e-collapsable
+		     (memory-updates-e)
+		     :text "Memory Updates")))
 		  (selected-disassembled-instr-e)))))
 
       (setq *gui-state* (modest-gui:gui-state-created!
@@ -1440,6 +1457,7 @@
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (memory-updates-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
@@ -1452,6 +1470,7 @@
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (memory-updates-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
@@ -1467,6 +1486,7 @@
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (memory-updates-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
