@@ -1350,41 +1350,44 @@
 
 (defun cpu-regs-e ()
   ;; Create element
-  (e-collapsable
-   (vbox
-    :elements
-    (list (reg-text-e :pc *pc* t :hex)
-	  (reg-text-e :sp *sp* t :hex)
-	  (flag-text-e)
-	  (hbox
-	   :elements
-	   (list
-	    (reg-text-e :a *a* nil *reg-base*)
-	    (reg-text-e :af (af) t *reg-base*)))
-	  (hbox
-	   :elements
-	   (list
-	    (reg-text-e :b *b* nil *reg-base*)
-	    (reg-text-e :bc (bc) t *reg-base*)))
-	  (reg-text-e :c *c* nil *reg-base*)
-	  (hbox
-	   :elements
-	   (list
-	    (reg-text-e :d *d* nil *reg-base*)
-	    (reg-text-e :de (de) t *reg-base*)))
-	  (reg-text-e :e *e* nil *reg-base*)
-	  (hbox
-	   :elements
-	   (list
-	    (reg-text-e :h *h* nil *reg-base*)
-	    (reg-text-e :hl (hl) t *reg-base*)))
-	  (reg-text-e :l *l* nil *reg-base*)
-	  (e-radio-button '("Hex" "Bin" "Dec")
-			  :id :reg-base
-			  :selected-option-idx
-			  (position *reg-base* *reg-bases*))))
-   :id :cpu
-   :text "CPU"))
+  (let ((ps (cdr (previous-state))))
+    (e-collapsable
+     (vbox
+      :elements
+      (remove
+       nil
+       (list (reg-text-e :pc *pc* t :hex)
+	     (reg-text-e :sp *sp* t :hex)
+	     (flag-text-e)
+	     (hbox
+	      :elements
+	      (list
+	       (reg-text-e :a *a* nil *reg-base*)
+	       (reg-text-e :af (af) t *reg-base*)))
+	     (hbox
+	      :elements
+	      (list
+	       (reg-text-e :b *b* nil *reg-base*)
+	       (reg-text-e :bc (bc) t *reg-base*)))
+	     (reg-text-e :c *c* nil *reg-base*)
+	     (hbox
+	      :elements
+	      (list
+	       (reg-text-e :d *d* nil *reg-base*)
+	       (reg-text-e :de (de) t *reg-base*)))
+	     (reg-text-e :e *e* nil *reg-base*)
+	     (hbox
+	      :elements
+	      (list
+	       (reg-text-e :h *h* nil *reg-base*)
+	       (reg-text-e :hl (hl) t *reg-base*)))
+	     (reg-text-e :l *l* nil *reg-base*)
+	     (e-radio-button '("Hex" "Bin" "Dec")
+			     :id :reg-base
+			     :selected-option-idx
+			     (position *reg-base* *reg-bases*)))))
+     :id :cpu
+     :text "CPU")))
 
 (defvar *gui-state*)
 
@@ -1401,11 +1404,19 @@
   (setq *gui-state*
 	(modest-gui:gui-state-assets-replaced! *gui-state*)))
 
-(defun selected-state ()
+(defun selected-state-idx ()
   (when (plusp (length *machine-states*))
     (let ((instrs-e (modest-gui:find-element (gui *gui-state*)
 					     :disassembled-instrs)))
-      (nth (modest-gui:selected-idx instrs-e) *machine-states*))))
+      (modest-gui:selected-idx instrs-e))))
+(defun selected-state ()
+  (let ((idx (selected-state-idx)))
+    (when idx
+      (nth idx *machine-states*))))
+(defun previous-state ()
+  (let ((idx (selected-state-idx)))
+    (when (and idx (< idx (1- (length *machine-states*))))
+      (nth (1+ idx) *machine-states*))))
 
 (defun selected-disassembled-instr-e ()
   (let ((state (selected-state)))
