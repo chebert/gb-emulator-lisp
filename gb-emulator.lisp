@@ -1475,6 +1475,54 @@
 	  do
 	    (incf adr 2))))))
 
+(defun init-gui ()
+  (vbox
+   :elements
+   (list
+    (hbox
+     :elements
+     (list
+      (e-collapsable
+       (vbox
+	:elements
+	(list
+	 (e-scroll-view
+	  (instruction-e-list)
+	  :window-dims (make-v 200 240))))
+       :text "Disassembly"
+       :collapsed? nil)
+      (vbox
+       :elements
+       (list
+	(hbox
+	 :elements
+	 (list
+	  (e-collapsable
+	   (cpu-regs-e :cpu)
+	   :text "CPU")
+	  (e-collapsable
+	   (prev-cpu-regs-e)
+	   :text "Prev CPU")))
+	(hbox
+	 :elements
+	 (list
+	  (e-collapsable
+	   (stack-e)
+	   :text "Stack")
+	  (e-collapsable
+	   (memory-updates-e)
+	   :text "Memory Updates")))))))
+    (hbox
+     :elements
+     (list
+      (e-button :id :step-button :text "Step")
+      (e-button :id :continue-button :text "Continue")
+      (e-radio-button '("Hex" "Bin" "Dec")
+		      :id :reg-base
+		      :selected-option-idx
+		      (position *reg-base* *reg-bases*))))
+    (selected-disassembled-instr-e))))
+
 (defvar *memory-updates*)
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
@@ -1490,46 +1538,7 @@
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (vbox
-		 :elements
-		 (list
-		  (hbox
-		   :elements
-		   (list
-		    (e-collapsable
-		     (vbox
-		      :elements
-		      (list
-		       (e-scroll-view
-			(instruction-e-list)
-			:window-dims (make-v 200 240))
-		       (hbox
-			:elements
-			(list
-			 (e-button :id :step-button :text "Step")
-			 (e-button :id :continue-button :text "Continue")
-			 (e-radio-button '("Hex" "Bin" "Dec")
-					 :id :reg-base
-					 :selected-option-idx
-					 (position *reg-base* *reg-bases*))))))
-		     :text "Disassembly"
-		     :collapsed? nil)
-		    (vbox
-		     :elements
-		     (list
-		      (e-collapsable
-		       (cpu-regs-e :cpu)
-		       :text "CPU")
-		      (e-collapsable
-		       (prev-cpu-regs-e)
-		       :text "Prev CPU")))
-		    (e-collapsable
-		     (memory-updates-e)
-		     :text "Memory Updates")
-		    (e-collapsable
-		     (stack-e)
-		     :text "Stack")))
-		  (selected-disassembled-instr-e)))))
+	   (gui (init-gui)))
 
       (setq *gui-state* (modest-gui:gui-state-created!
 			 (modest-gui:make-gui-state gui assets ())))
