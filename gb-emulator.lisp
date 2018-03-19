@@ -148,6 +148,45 @@
 (defun memory (b)
   (make-array b :element-type '(unsigned-byte 8)))
 
+(defrecord machine-state
+  pc sp a b c d e f h l
+  video-ram ext-ram work-ram sprite-ram mmap-i/o z-ram
+  affected-regs affected-flags memory-updates
+  disassembled-instr)
+
+(defun save-state ()
+  (make-machine-state *pc* *sp* *a* *b* *c* *d* *e* *f* *h* *l*
+		      (copy-seq *video-ram*)
+		      (copy-seq *ext-ram*)
+		      (copy-seq *work-ram*)
+		      (copy-seq *sprite-ram*)
+		      (copy-seq *mmap-i/o*)
+		      (copy-seq *z-ram*)
+		      (copy-seq *affected-regs*)
+		      (copy-seq *affected-flags*)
+		      (copy-seq *memory-updates*)
+		      *disassembled-instr*))
+(defun restore-state! (s)
+  (setq *pc* (pc s)
+	*sp* (sp s)
+	*a* (a s)
+	*b* (b s)
+	*c* (c s)
+	*d* (d s)
+	*e* (e s)
+	*f* (f s)
+	*h* (h s)
+	*l* (l s)
+	*video-ram* (video-ram s)
+	*ext-ram* (ext-ram s)
+	*work-ram* (work-ram s)
+	*sprite-ram* (sprite-ram s)
+	*mmap-i/o* (mmap-i/o s)
+	*z-ram* (z-ram s)
+	*affected-regs* (affected-regs s)
+	*affected-flags* (affected-flags s)
+	*memory-updates* (memory-updates s)))
+
 ;; CPU
 (defvars
   *pc* *sp*
@@ -1038,7 +1077,6 @@
 
 ;; TODO: Breakpoints
 ;; TODO: show memory
-;; TODO: create disassembly
 ;; TODO: show next instruction
 
 (defun rotate-a-carry? (b1)
@@ -1207,13 +1245,11 @@
        do
 	 (let ((pc *pc*))
 	   (exec-instr!)
-	   (push-instr! pc *disassembled-instr*)
+	   (push-state! pc (save-state))
 	   (setq done? (or (not (typep *disassembled-instr*
 				       'disassembled-instr))
 			   (member pc *breakpoints*)))))))
 
-;; TODO: save disassembled instructions, and match them in automated test
-;; TODO: set/clear flags function
 ;; TODO: Stuck waiting for screen frame #xff44 = #x90 (vblank)
 
 ;; v-blank
@@ -1230,33 +1266,23 @@
     (setq *bank0-rom* (subseq rom-bytes 0 (kb 16)))
     (setq *bank1-rom* (subseq rom-bytes (kb 16)))))
 
-#+nil
-(progn
-  (init!)
-  (load-rom! *tetris-filename*)
-  (let (pc)
-    (dotimes (i 28)
-      (setq pc *pc*)
-      (exec-instr!)
-      (push-instr! pc *disassembled-instr*))
-    (format t "~&#x~4,'0x: ~A" pc (disassembled-instr-string))))
-
-(defvar *instr-history*)
-(defun push-instr! (pc disassembled-instr)
-  (setq *instr-history*
-	(subseq (push (cons pc disassembled-instr) *instr-history*)
-		0 (min 20 (length *instr-history*)))))
+(defparameter *num-machine-states* 20)
+(defvar *machine-states*)
+(defun push-state! (pc state)
+  (setq *machine-states*
+	(subseq (push (cons pc state) *machine-states*)
+		0 (min *num-machine-states* (length *machine-states*)))))
 
 (defun instruction-e-list ()
   (e-list
    (mapcar
-    (lambda (instr)
+    (lambda (state)
       (format nil "~&#x~4,'0x: ~A"
-	      (car instr)
-	      (typecase (cdr instr)
-		(disassembled-instr (name (cdr instr)))
+	      (car state)
+	      (typecase (disassembled-instr (cdr state))
+		(disassembled-instr (name (disassembled-instr (cdr state))))
 		(t "Not Implemented"))))
-    *instr-history*)
+    *machine-states*)
    :id :disassembled-instrs))
 
 (defun byte-text (val 16-bit? base)
@@ -1375,19 +1401,20 @@
   (setq *gui-state*
 	(modest-gui:gui-state-assets-replaced! *gui-state*)))
 
-(defun selected-instr ()
-  (when (plusp (length *instr-history*))
+(defun selected-state ()
+  (when (plusp (length *machine-states*))
     (let ((instrs-e (modest-gui:find-element (gui *gui-state*)
 					     :disassembled-instrs)))
-      (nth (modest-gui:selected-idx instrs-e) *instr-history*))))
+      (nth (modest-gui:selected-idx instrs-e) *machine-states*))))
 
 (defun selected-disassembled-instr-e ()
-  (let ((instr (selected-instr)))
+  (let ((state (selected-state)))
     (e-text
      :id :disassembled-instr-text
      :text (format nil "Instr: ~A"
-		   (if instr
-		       (disassembled-instr-string (cdr instr))
+		   (if state
+		       (disassembled-instr-string
+			(disassembled-instr (cdr state)))
 		       "")))))
 
 (defun memory-updates-e ()
@@ -1426,7 +1453,7 @@
     ;; DEBUG: set the v-blank
     (mem-byte-set! #xff44 #x90)
 
-    (setq *instr-history* ())
+    (setq *machine-states* ())
     (load-rom! *tetris-filename*)
 
     (modest-gui:init-event-handlers!)
@@ -1471,7 +1498,7 @@
 		(declare (ignore gui-state event))
 		(let ((pc *pc*))
 		  (exec-instr!)
-		  (push-instr! pc *disassembled-instr*))
+		  (push-state! pc (save-state)))
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
@@ -1516,8 +1543,12 @@
 	      :disassembled-instrs
 	      (lambda (gui-state event)
 		(declare (ignore gui-state event))
-
+		(restore-state! (cdr (selected-state)))
+		
 		(gui-state-replace-element! (selected-disassembled-instr-e))
+		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (memory-updates-e))
+		(gui-state-replace-element! (stack-e))
 		*gui-state*))
 	     
 	     (ssdl:enable-text-input)
