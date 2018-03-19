@@ -186,6 +186,29 @@
 	*affected-regs* (affected-regs s)
 	*affected-flags* (affected-flags s)
 	*memory-updates* (memory-updates s)))
+(defmacro with-machine-state (machine-state &body body)
+  (let ((s (gensym)))
+    `(let* ((,s ,machine-state)
+	    (*pc* (pc ,s))
+	    (*sp* (sp ,s))
+	    (*a* (a ,s))
+	    (*b* (b ,s))
+	    (*c* (c ,s))
+	    (*d* (d ,s))
+	    (*e* (e ,s))
+	    (*f* (f ,s))
+	    (*h* (h ,s))
+	    (*l* (l ,s))
+	    (*video-ram* (video-ram ,s))
+	    (*ext-ram* (ext-ram ,s))
+	    (*work-ram* (work-ram ,s))
+	    (*sprite-ram* (sprite-ram ,s))
+	    (*mmap-i/o* (mmap-i/o ,s))
+	    (*z-ram* (z-ram ,s))
+	    (*affected-regs* (affected-regs ,s))
+	    (*affected-flags* (affected-flags ,s))
+	    (*memory-updates* (memory-updates ,s)))
+       ,@body)))
 
 ;; CPU
 (defvars
@@ -1348,46 +1371,44 @@
 (defvar *reg-base* :hex)
 (defparameter *reg-bases* '(:hex :binary :decimal))
 
-(defun cpu-regs-e ()
+(defun cpu-regs-e (id)
   ;; Create element
-  (let ((ps (cdr (previous-state))))
-    (e-collapsable
-     (vbox
-      :elements
-      (remove
-       nil
-       (list (reg-text-e :pc *pc* t :hex)
-	     (reg-text-e :sp *sp* t :hex)
-	     (flag-text-e)
-	     (hbox
-	      :elements
-	      (list
-	       (reg-text-e :a *a* nil *reg-base*)
-	       (reg-text-e :af (af) t *reg-base*)))
-	     (hbox
-	      :elements
-	      (list
-	       (reg-text-e :b *b* nil *reg-base*)
-	       (reg-text-e :bc (bc) t *reg-base*)))
-	     (reg-text-e :c *c* nil *reg-base*)
-	     (hbox
-	      :elements
-	      (list
-	       (reg-text-e :d *d* nil *reg-base*)
-	       (reg-text-e :de (de) t *reg-base*)))
-	     (reg-text-e :e *e* nil *reg-base*)
-	     (hbox
-	      :elements
-	      (list
-	       (reg-text-e :h *h* nil *reg-base*)
-	       (reg-text-e :hl (hl) t *reg-base*)))
-	     (reg-text-e :l *l* nil *reg-base*)
-	     (e-radio-button '("Hex" "Bin" "Dec")
-			     :id :reg-base
-			     :selected-option-idx
-			     (position *reg-base* *reg-bases*)))))
-     :id :cpu
-     :text "CPU")))
+  (vbox
+   :elements
+   (list (reg-text-e :pc *pc* t :hex)
+	 (reg-text-e :sp *sp* t :hex)
+	 (flag-text-e)
+	 (hbox
+	  :elements
+	  (list
+	   (reg-text-e :a *a* nil *reg-base*)
+	   (reg-text-e :af (af) t *reg-base*)))
+	 (hbox
+	  :elements
+	  (list
+	   (reg-text-e :b *b* nil *reg-base*)
+	   (reg-text-e :bc (bc) t *reg-base*)))
+	 (reg-text-e :c *c* nil *reg-base*)
+	 (hbox
+	  :elements
+	  (list
+	   (reg-text-e :d *d* nil *reg-base*)
+	   (reg-text-e :de (de) t *reg-base*)))
+	 (reg-text-e :e *e* nil *reg-base*)
+	 (hbox
+	  :elements
+	  (list
+	   (reg-text-e :h *h* nil *reg-base*)
+	   (reg-text-e :hl (hl) t *reg-base*)))
+	 (reg-text-e :l *l* nil *reg-base*))
+   :id id))
+
+(defun prev-cpu-regs-e ()
+  (let ((ms (cdr (previous-state))))
+    (if ms
+	(with-machine-state ms
+	  (cpu-regs-e :prev-cpu))
+	(e-text :text "--" :id :prev-cpu))))
 
 (defvar *gui-state*)
 
@@ -1486,10 +1507,22 @@
 			:elements
 			(list
 			 (e-button :id :step-button :text "Step")
-			 (e-button :id :continue-button :text "Continue")))))
+			 (e-button :id :continue-button :text "Continue")
+			 (e-radio-button '("Hex" "Bin" "Dec")
+					 :id :reg-base
+					 :selected-option-idx
+					 (position *reg-base* *reg-bases*))))))
 		     :text "Disassembly"
 		     :collapsed? nil)
-		    (cpu-regs-e)
+		    (vbox
+		     :elements
+		     (list
+		      (e-collapsable
+		       (cpu-regs-e :cpu)
+		       :text "CPU")
+		      (e-collapsable
+		       (prev-cpu-regs-e)
+		       :text "Prev CPU")))
 		    (e-collapsable
 		     (memory-updates-e)
 		     :text "Memory Updates")
@@ -1513,7 +1546,8 @@
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (cpu-regs-e :cpu))
+		(gui-state-replace-element! (prev-cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
 		(gui-state-replace-element! (stack-e))
 		*gui-state*))
@@ -1527,7 +1561,8 @@
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (cpu-regs-e :cpu))
+		(gui-state-replace-element! (prev-cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
 		(gui-state-replace-element! (stack-e))
 		*gui-state*))
@@ -1543,7 +1578,8 @@
 				   (modest-gui:element event))
 				  *reg-bases*))
 
-		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (cpu-regs-e :cpu))
+		(gui-state-replace-element! (prev-cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
 		(gui-state-replace-element! (stack-e))
 		*gui-state*))
@@ -1556,7 +1592,8 @@
 		(restore-state! (cdr (selected-state)))
 		
 		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e))
+		(gui-state-replace-element! (cpu-regs-e :cpu))
+		(gui-state-replace-element! (prev-cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
 		(gui-state-replace-element! (stack-e))
 		*gui-state*))
