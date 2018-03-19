@@ -1245,7 +1245,7 @@
        do
 	 (let ((pc *pc*))
 	   (exec-instr!)
-	   (push-state! pc (save-state))
+	   (push-state! pc)
 	   (setq done? (or (not (typep *disassembled-instr*
 				       'disassembled-instr))
 			   (member pc *breakpoints*)))))))
@@ -1268,9 +1268,9 @@
 
 (defparameter *num-machine-states* 20)
 (defvar *machine-states*)
-(defun push-state! (pc state)
+(defun push-state! (pc)
   (setq *machine-states*
-	(subseq (push (cons pc state) *machine-states*)
+	(subseq (push (cons pc (save-state)) *machine-states*)
 		0 (min *num-machine-states* (length *machine-states*)))))
 
 (defun instruction-e-list ()
@@ -1498,7 +1498,7 @@
 		(declare (ignore gui-state event))
 		(let ((pc *pc*))
 		  (exec-instr!)
-		  (push-state! pc (save-state)))
+		  (push-state! pc))
 
 		(gui-state-replace-element! (instruction-e-list))
 		(gui-state-replace-element! (selected-disassembled-instr-e))
@@ -1531,8 +1531,7 @@
 				  (modest-gui:selected-option-idx
 				   (modest-gui:element event))
 				  *reg-bases*))
-		(gui-state-replace-element! (instruction-e-list))
-		(gui-state-replace-element! (selected-disassembled-instr-e))
+
 		(gui-state-replace-element! (cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
 		(gui-state-replace-element! (stack-e))
