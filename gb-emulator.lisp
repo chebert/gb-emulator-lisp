@@ -261,17 +261,21 @@
   (init-memory-regions!)
   :done)
 
-(defun stack-push! (byte)
+(defun stack-push! (val)
   (push :sp *affected-regs*)
   (decf *sp*)
-  (mem-byte-set! *sp* byte))
+  (mem-byte-set! *sp* (msb val))
+  (decf *sp*)
+  (mem-byte-set! *sp* (lsb val)))
 (defun stack-top ()
   (mem-byte *sp*))
 (defun stack-pop! ()
   (push :sp *affected-regs*)
-  (let ((b (stack-top)))
+  (let ((lsb (stack-top)))
     (incf *sp*)
-    b))
+    (let ((msb (stack-top)))
+      (incf *sp*)
+      (u16 msb lsb))))
 
 (defun set-pc! (adr)
   (push :pc *affected-regs*)
@@ -997,8 +1001,7 @@
 	   cycle-count
 	   (alist :adr adr)))
     (let ((next-pc (+ *pc* size)))
-      (stack-push! (lsb next-pc))
-      (stack-push! (msb next-pc))
+      (stack-push! next-pc)
       (set-pc! adr))))
 
 (defun push/pop-r? (b1)
@@ -1026,12 +1029,11 @@
 	   (alist :reg reg)))
     (ecase type
       (0
-       (let ((c (stack-pop!))
-	     (b (stack-pop!)))
-	 (set-bc! b c)))
+       (let ((val (stack-pop!)))
+	 (set-reg! reg (msb val) (lsb val))))
       (1
-       (stack-push! *b*)
-       (stack-push! *c*)))
+       (let ((val (reg reg)))
+	 (stack-push! val))))
     (inc-pc! size)))
 
 ;; TODO: Breakpoints
@@ -1098,9 +1100,7 @@
   (= b1 #b11001001))
 (defun ret! (b1 b2 b3)
   (let* ((size 1)
-	 (msb (stack-pop!))
-	 (lsb (stack-pop!))
-	 (adr (u16 msb lsb))
+	 (adr (stack-pop!))
 	 (cycle-count 8))
     (setq *disassembled-instr*
 	  (make-disassembled-instr
@@ -1400,6 +1400,22 @@
 				   (byte-text (cdr u) nil *reg-base*))))
 	   *memory-updates*)))
 
+(defun stack-e ()
+  (vbox
+   :id :stack
+   :elements
+   (when (> *sp* #xff80)
+     (let ((adr *sp*))
+       (loop while (< adr #xfffe)
+	  collecting
+	    (e-text
+	     :text
+	     (format nil "~2d: ~A"
+		     (truncate (- #xfffe (+ adr 2)) 2)
+		     (byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
+	  do
+	    (incf adr 2))))))
+
 (defvar *memory-updates*)
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
@@ -1438,7 +1454,10 @@
 		    (cpu-regs-e)
 		    (e-collapsable
 		     (memory-updates-e)
-		     :text "Memory Updates")))
+		     :text "Memory Updates")
+		    (e-collapsable
+		     (stack-e)
+		     :text "Stack")))
 		  (selected-disassembled-instr-e)))))
 
       (setq *gui-state* (modest-gui:gui-state-created!
@@ -1458,6 +1477,7 @@
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
+		(gui-state-replace-element! (stack-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
@@ -1471,6 +1491,7 @@
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
+		(gui-state-replace-element! (stack-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
@@ -1487,6 +1508,7 @@
 		(gui-state-replace-element! (selected-disassembled-instr-e))
 		(gui-state-replace-element! (cpu-regs-e))
 		(gui-state-replace-element! (memory-updates-e))
+		(gui-state-replace-element! (stack-e))
 		*gui-state*))
 
 	     (modest-gui:register-handler!
