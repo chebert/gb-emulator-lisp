@@ -1589,6 +1589,13 @@
    (ssdl:make-texture-from-pixels *bg-size* *bg-size* background-pixels)
    nil))
 
+(defparameter *colors* (vector (modest-drawing:grey 0)
+			       (modest-drawing:grey 86)
+			       (modest-drawing:grey 171)
+			       (modest-drawing:grey 255)))
+
+;; todo: simpler way of drawing things to a texture
+
 (defvar *memory-updates*)
 (defun main! ()
   (ssdl:with-init "GameBoy" 1072 716
@@ -1604,12 +1611,7 @@
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (init-gui))
-	   (background-pixels (pixels *bg-size* *bg-size* (modest-drawing:black)))
-	   (background-texture (pixels-asset background-pixels))
-
-	   (tiles-pixels (pixels *bg-size* *bg-size* (modest-drawing:black)))
-	   (tiles-texture (pixels-asset tiles-pixels)))
+	   (gui (init-gui)))
 
       (setq *gui-state* (modest-gui:gui-state-created!
 			 (modest-gui:make-gui-state gui assets ())))
@@ -1648,22 +1650,6 @@
 	     (modest-gui:main-loop (input frames)
 	       (let ((drawings ())
 		     (gui-events ()))
-		 (modest-drawing:asset-freed! background-texture)
-		 (modest-drawing:asset-freed! tiles-texture)
-
-		 (setq background-texture (pixels-asset background-pixels))
-		 (setq tiles-texture (pixels-asset tiles-pixels))
-		 (appendf drawings
-			  (list
-			   (modest-drawing:texture-drawing-full
-			    0 background-texture)))
-		 (appendf drawings
-			  (list
-			   (positioned
-			    (modest-drawing:texture-drawing-full
-			     0 tiles-texture)
-			    (make-v (+ *bg-size* 4) 0))))
-
 		 (appendf drawings (modest-gui:cursor-drawings input))
 		 
 		 (setq *gui-state*
@@ -1674,8 +1660,7 @@
 		 (modest-gui:draw-drawings! drawings)
 
 		 (gui-end-frame! gui-events))))
-	(modest-gui:gui-state-assets-freed! *gui-state*)
-	(modest-drawing:asset-freed! background-texture))
+	(modest-gui:gui-state-assets-freed! *gui-state*))
       (values))))
 
 (defparameter *font-asset*
