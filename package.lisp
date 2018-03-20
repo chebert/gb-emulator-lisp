@@ -13,6 +13,8 @@
 		#:e-button
 		#:e-list
 		#:e-text
+		#:clicked-event
+		#:changed-event
 		#:element
 		#:gui
 		#:assets))

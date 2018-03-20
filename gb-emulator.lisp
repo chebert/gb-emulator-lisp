@@ -1523,6 +1523,33 @@
 		      (position *reg-base* *reg-bases*))))
     (selected-disassembled-instr-e))))
 
+(defun replace-cpu-elements! ()
+  (gui-state-replace-element! (cpu-regs-e :cpu))
+  (gui-state-replace-element! (prev-cpu-regs-e))
+  (gui-state-replace-element! (memory-updates-e))
+  (gui-state-replace-element! (stack-e)))
+
+(defmacro on-click (id &body body)
+  (let ((gui-state (gensym))
+	(event (gensym)))
+    `(modest-gui:register-handler!
+      'clicked-event
+      ,id
+      (lambda (,gui-state ,event)
+	(declare (ignore ,gui-state ,event))
+	,@body
+	*gui-state*))))
+(defmacro on-change (id (&optional (event (gensym))) &body body)
+  (let ((gui-state (gensym)))
+    `(modest-gui:register-handler!
+      'changed-event
+      ,id
+      (lambda (,gui-state ,event)
+	(declare (ignore ,gui-state)
+		 (ignorable ,event))
+	,@body
+	*gui-state*))))
+
 (defvar *memory-updates*)
 (defun main! ()
   (ssdl:with-init "GameBoy" 960 640
@@ -1544,68 +1571,34 @@
 			 (modest-gui:make-gui-state gui assets ())))
       (unwind-protect
 	   (progn
-	     (modest-gui:register-handler!
-	      'modest-gui:clicked-event
-	      :step-button
-	      (lambda (gui-state event)
-		(declare (ignore gui-state event))
-		(let ((pc *pc*))
-		  (exec-instr!)
-		  (push-state! pc))
+	     (on-click :step-button
+	       (let ((pc *pc*))
+		 (exec-instr!)
+		 (push-state! pc))
 
-		(gui-state-replace-element! (instruction-e-list))
-		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e :cpu))
-		(gui-state-replace-element! (prev-cpu-regs-e))
-		(gui-state-replace-element! (memory-updates-e))
-		(gui-state-replace-element! (stack-e))
-		*gui-state*))
+	       (gui-state-replace-element! (instruction-e-list))
+	       (gui-state-replace-element! (selected-disassembled-instr-e))
+	       (replace-cpu-elements!))
 
-	     (modest-gui:register-handler!
-	      'modest-gui:clicked-event
-	      :continue-button
-	      (lambda (gui-state event)
-		(declare (ignore gui-state event))
-		(continue-exec-instr!)
+	     (on-click :continue-button
+	       (continue-exec-instr!)
 
-		(gui-state-replace-element! (instruction-e-list))
-		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e :cpu))
-		(gui-state-replace-element! (prev-cpu-regs-e))
-		(gui-state-replace-element! (memory-updates-e))
-		(gui-state-replace-element! (stack-e))
-		*gui-state*))
+	       (gui-state-replace-element! (instruction-e-list))
+	       (gui-state-replace-element! (selected-disassembled-instr-e))
+	       (replace-cpu-elements!))
 
-	     (modest-gui:register-handler!
-	      'modest-gui:changed-event
-	      :reg-base
-	      (lambda (gui-state event)
-		(declare (ignore gui-state))
+	     (on-change :reg-base (event)
+	       (setq *reg-base* (nth
+				 (modest-gui:selected-option-idx
+				  (modest-gui:element event))
+				 *reg-bases*))
+	       (replace-cpu-elements!))
 
-		(setq *reg-base* (nth
-				  (modest-gui:selected-option-idx
-				   (modest-gui:element event))
-				  *reg-bases*))
-
-		(gui-state-replace-element! (cpu-regs-e :cpu))
-		(gui-state-replace-element! (prev-cpu-regs-e))
-		(gui-state-replace-element! (memory-updates-e))
-		(gui-state-replace-element! (stack-e))
-		*gui-state*))
-
-	     (modest-gui:register-handler!
-	      'modest-gui:changed-event
-	      :disassembled-instrs
-	      (lambda (gui-state event)
-		(declare (ignore gui-state event))
-		(restore-state! (cdr (selected-state)))
-		
-		(gui-state-replace-element! (selected-disassembled-instr-e))
-		(gui-state-replace-element! (cpu-regs-e :cpu))
-		(gui-state-replace-element! (prev-cpu-regs-e))
-		(gui-state-replace-element! (memory-updates-e))
-		(gui-state-replace-element! (stack-e))
-		*gui-state*))
+	     (on-change :disassembled-instrs ()
+	       (restore-state! (cdr (selected-state)))
+	       
+	       (gui-state-replace-element! (selected-disassembled-instr-e))
+	       (replace-cpu-elements!))
 	     
 	     (ssdl:enable-text-input)
 	     (modest-gui:main-loop (input frames)
