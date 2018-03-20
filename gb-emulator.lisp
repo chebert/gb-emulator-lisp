@@ -1098,10 +1098,6 @@
 	 (stack-push! val))))
     (inc-pc! size)))
 
-;; TODO: Breakpoints
-;; TODO: show memory
-;; TODO: show next instruction
-
 (defun rotate-a-carry? (b1)
   (bits-match? b1
 	       #b00010111
@@ -1459,6 +1455,10 @@
 				   (byte-text (cdr u) nil *reg-base*))))
 	   *memory-updates*)))
 
+;; TODO: Breakpoints
+;; TODO: show memory
+;; TODO: video display
+
 (defun stack-e ()
   (vbox
    :id :stack
@@ -1482,15 +1482,22 @@
     (hbox
      :elements
      (list
-      (e-collapsable
-       (vbox
-	:elements
-	(list
-	 (e-scroll-view
-	  (instruction-e-list)
-	  :window-dims (make-v 200 240))))
-       :text "Disassembly"
-       :collapsed? nil)
+      (vbox
+       :elements
+       (list (e-collapsable
+	      (vbox
+	       :elements
+	       (list
+		(e-scroll-view
+		 (instruction-e-list)
+		 :window-dims (make-v 200 240))))
+	      :text "Disassembly"
+	      :collapsed? nil)
+	     (hbox
+	      :elements
+	      (list
+	       (e-button :id :step-button :text "Step")
+	       (e-button :id :continue-button :text "Continue")))))
       (vbox
        :elements
        (list
@@ -1511,16 +1518,12 @@
 	   :text "Stack")
 	  (e-collapsable
 	   (memory-updates-e)
-	   :text "Memory Updates")))))))
-    (hbox
-     :elements
-     (list
-      (e-button :id :step-button :text "Step")
-      (e-button :id :continue-button :text "Continue")
-      (e-radio-button '("Hex" "Bin" "Dec")
-		      :id :reg-base
-		      :selected-option-idx
-		      (position *reg-base* *reg-bases*))))
+	   :text "Memory Updates")))
+	(e-radio-button '("Hex" "Bin" "Dec")
+			:id :reg-base
+			:selected-option-idx
+			(position *reg-base* *reg-bases*))))))
+    
     (selected-disassembled-instr-e))))
 
 (defun replace-cpu-elements! ()
@@ -1550,9 +1553,45 @@
 	,@body
 	*gui-state*))))
 
+(defparameter *bg-size* 256)
+(defparameter *gb-w* 160)
+(defparameter *gb-h* 144)
+
+;; TODO: create 2 textures for drawing pixels
+;; TODO: draw tiles (prev <indices> next) (384 tiles, 32x32 grid, 256x256 pixels)
+;; TODO: draw tile map
+;; TODO: draw sprites
+;; TODO: apply scroll x,y to tile-map (draw a window)
+;; TODO: draw window
+
+(defun pixels (w h color)
+  (let ((arr (make-array (* w h 4)
+			 :initial-element 0
+			 :element-type '(unsigned-byte 8))))
+    (color-pixels! arr w h color)
+    arr))
+
+(defun color-pixels! (arr w h color)
+  (let ((r (modest-drawing:r color))
+	(b (modest-drawing:b color))
+	(g (modest-drawing:g color))
+	(a (modest-drawing:a color)))
+    (loop for i below (* w h)
+       do
+	 (setf (aref arr (+ 0 (* i 4))) r)
+	 (setf (aref arr (+ 1 (* i 4))) g)
+	 (setf (aref arr (+ 2 (* i 4))) b)
+	 (setf (aref arr (+ 3 (* i 4))) a))))
+
+(defun pixels-asset (background-pixels)
+  (modest-drawing:make-image-asset
+   :background
+   (ssdl:make-texture-from-pixels *bg-size* *bg-size* background-pixels)
+   nil))
+
 (defvar *memory-updates*)
 (defun main! ()
-  (ssdl:with-init "GameBoy" 960 640
+  (ssdl:with-init "GameBoy" 1072 716
     (setq *affected-regs* ()
 	  *affected-flags* ()
 	  *memory-updates* ())
@@ -1565,7 +1604,12 @@
 
     (modest-gui:init-event-handlers!)
     (let* ((assets (modest-drawing:assets-loaded! () (list *font-asset*)))
-	   (gui (init-gui)))
+	   (gui (init-gui))
+	   (background-pixels (pixels *bg-size* *bg-size* (modest-drawing:black)))
+	   (background-texture (pixels-asset background-pixels))
+
+	   (tiles-pixels (pixels *bg-size* *bg-size* (modest-drawing:black)))
+	   (tiles-texture (pixels-asset tiles-pixels)))
 
       (setq *gui-state* (modest-gui:gui-state-created!
 			 (modest-gui:make-gui-state gui assets ())))
@@ -1604,16 +1648,34 @@
 	     (modest-gui:main-loop (input frames)
 	       (let ((drawings ())
 		     (gui-events ()))
+		 (modest-drawing:asset-freed! background-texture)
+		 (modest-drawing:asset-freed! tiles-texture)
+
+		 (setq background-texture (pixels-asset background-pixels))
+		 (setq tiles-texture (pixels-asset tiles-pixels))
+		 (appendf drawings
+			  (list
+			   (modest-drawing:texture-drawing-full
+			    0 background-texture)))
+		 (appendf drawings
+			  (list
+			   (positioned
+			    (modest-drawing:texture-drawing-full
+			     0 tiles-texture)
+			    (make-v (+ *bg-size* 4) 0))))
+
 		 (appendf drawings (modest-gui:cursor-drawings input))
 		 
 		 (setq *gui-state*
 		       (modest-gui:gui-state-update-applied!
-			*gui-state* input 0 (v0) drawings gui-events))
+			*gui-state* input 0 (make-v 0 *bg-size*)
+			drawings gui-events))
 
 		 (modest-gui:draw-drawings! drawings)
 
 		 (gui-end-frame! gui-events))))
-	(modest-gui:gui-state-assets-freed! *gui-state*))
+	(modest-gui:gui-state-assets-freed! *gui-state*)
+	(modest-drawing:asset-freed! background-texture))
       (values))))
 
 (defparameter *font-asset*
