@@ -1671,3 +1671,36 @@
     (modest-pathnames:application-file-pathname
      "FiraMono-Regular.otf" :gb-emulator))
    14))
+
+(defun gui ()
+  (gui:e-text))
+
+(defvar *gui*)
+(defun main-loop! (*gui*)
+  (setq *affected-regs* ()
+	*affected-flags* ()
+	*memory-updates* ())
+  (init!)
+  ;; DEBUG: set the v-blank
+  (mem-byte-set! #xff44 #x90)
+
+  (setq *machine-states* ())
+  (load-rom! *tetris-filename*)
+  (gui:main-loop (gui:*input* frames)
+    (setq *gui* (gui:update-gui! *gui*))
+
+    (modest:draw-color! gui:*color-bg*)
+    (ssdl:clear)
+    (let ((drawings (modest:drawings-sorted
+		     (list (gui:cursor-drawing)
+			   (gui:gui-drawing *gui*)))))
+      (mapc #'modest:draw-drawing! drawings))
+    (ssdl:display)))
+
+(defun main-simple-gui! ()
+  (let ((gui:*window-title* "GameBoy")
+	(gui:*window-dims* (make-v 1072 716)))
+    (gui:with-init
+      (bracket (gui:gui! (gui))
+	       #'main-loop!
+	       #'gui:destroy-gui!))))
