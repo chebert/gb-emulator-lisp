@@ -1672,6 +1672,78 @@
      "FiraMono-Regular.otf" :gb-emulator))
    14))
 
+(defun e-reg-text (reg-name val 16-bit? base)
+  (let ((aff? (member reg-name *affected-regs*)))
+    (gui:e-text
+     :text
+     (format nil "~2A: ~A" reg-name (byte-text val 16-bit? base))
+     :color (if aff?
+		(modest-drawing:red)
+		(modest-drawing:black)))))
+
+(defun e-flags ()
+  (gui:hbox
+   (gui:e-text :text "F : ")
+   (gui:e-text
+    :text (if (zero-set?) "Z" "z")
+    :color (if (member :zero *affected-flags*)
+	       (modest-drawing:red)
+	       (modest-drawing:black)))
+   (gui:e-text
+    :text (if (negative-set?) "N" "n")
+    :color (if (member :negative *affected-flags*)
+	       (modest-drawing:red)
+	       (modest-drawing:black)))
+   (gui:e-text
+    :text (if (half-carry-set?) "H" "h")
+    :color (if (member :half-carry *affected-flags*)
+	       (modest-drawing:red)
+	       (modest-drawing:black)))
+   (gui:e-text
+    :text (if (carry-set?) "C" "c")
+    :color (if (member :carry *affected-flags*)
+	       (modest-drawing:red)
+	       (modest-drawing:black)))))
+
+(defun e-cpu-regs ()
+  ;; Create element
+  (gui:vbox
+   (e-reg-text :pc *pc* t :hex)
+   (e-reg-text :sp *sp* t :hex)
+   (e-flags)
+   (gui:hbox
+    (e-reg-text :a *a* nil *reg-base*)
+    (e-reg-text :af (af) t *reg-base*))
+   (gui:hbox
+    (e-reg-text :b *b* nil *reg-base*)
+    (e-reg-text :bc (bc) t *reg-base*))
+   (e-reg-text :c *c* nil *reg-base*)
+   (gui:hbox
+    (e-reg-text :d *d* nil *reg-base*)
+    (e-reg-text :de (de) t *reg-base*))
+   (e-reg-text :e *e* nil *reg-base*)
+   (gui:hbox
+    (e-reg-text :h *h* nil *reg-base*)
+    (e-reg-text :hl (hl) t *reg-base*))
+   (e-reg-text :l *l* nil *reg-base*)))
+
+(defun e-prev-cpu-regs ()
+  (let ((ms (cdr (previous-state))))
+    (if ms
+	(with-machine-state ms
+	  (e-cpu-regs))
+	(gui:e-text :text "--" :id :prev-cpu))))
+
+(defun e-selected-disassembled-instr ()
+  (let ((state (selected-state)))
+    (gui:e-text
+     :id :disassembled-instr-text
+     :text (format nil "Instr: ~A"
+		   (if state
+		       (disassembled-instr-string
+			(disassembled-instr (cdr state)))
+		       "")))))
+
 (defun gui ()
   (gui:vbox
    (gui:hbox
@@ -1698,44 +1770,44 @@
       (gui:e-button :text "Step")
       (gui:e-button :text "Continue")))
     (gui:vbox
-     #+nil
      (gui:hbox
       (gui:e-collapsable
-       (cpu-regs-e :cpu)
+       (e-cpu-regs)
        :text "CPU")
       (gui:e-collapsable
-       (prev-cpu-regs-e)
+       (e-prev-cpu-regs)
        :text "Prev CPU"))
      (gui:hbox
       (gui:e-collapsable
        ;; Stack
-       (apply #'gui:vbox
-	      (when (> *sp* #xff80)
-		(let ((adr *sp*))
-		  (loop while (< adr #xfffe)
-		     collecting
-		       (gui:e-text
-			:text
-			(format nil "~2d: ~A"
-				(truncate (- #xfffe (+ adr 2)) 2)
-				(byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
-		     do
-		       (incf adr 2)))))
+       (gui:v-layout
+	:elements
+	(when (> *sp* #xff80)
+	  (let ((adr *sp*))
+	    (loop while (< adr #xfffe)
+	       collecting
+		 (gui:e-text
+		  :text
+		  (format nil "~2d: ~A"
+			  (truncate (- #xfffe (+ adr 2)) 2)
+			  (byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
+	       do
+		 (incf adr 2)))))
        :text "Stack")
       (gui:e-collapsable
-       (apply #'gui:vbox
-	      (mapcar (lambda (u)
-			(gui:e-text :text (format nil "x~4,'0x: ~A"
-						  (car u)
-						  (byte-text (cdr u) nil *reg-base*))))
-		      *memory-updates*))
+       (gui:v-layout
+	:elements
+	(mapcar (lambda (u)
+		  (gui:e-text :text (format nil "x~4,'0x: ~A"
+					    (car u)
+					    (byte-text (cdr u) nil *reg-base*))))
+		*memory-updates*))
        :text "Memory Updates"))
      (gui:e-radio-button '("Hex" "Bin" "Dec")
 			 :id :reg-base
 			 :selected-option-idx
 			 (position *reg-base* *reg-bases*))))
-   #+nil
-   (selected-disassembled-instr-e)))
+   (e-selected-disassembled-instr)))
 
 (defvar *gui*)
 (defun main-loop! (*gui*)
