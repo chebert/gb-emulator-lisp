@@ -1673,7 +1673,69 @@
    14))
 
 (defun gui ()
-  (gui:e-text))
+  (gui:vbox
+   (gui:hbox
+    (gui:vbox
+     ;; Disassembly Box
+     (gui:e-collapsable
+      (gui:vbox
+       (gui:e-scroll-view
+	(gui:e-framed
+	 (gui:e-radio-button
+	  (mapcar
+	   (lambda (state)
+	     (format nil "~&#x~4,'0x: ~A"
+		     (car state)
+		     (typecase (disassembled-instr (cdr state))
+		       (disassembled-instr (name (disassembled-instr (cdr state))))
+		       (t "Not Implemented"))))
+	   *machine-states*)
+	  :orientation :vertical))
+	:dims (make-v 200 240)))
+      :text "Disassembly"
+      :collapsed? nil)
+     (gui:hbox
+      (gui:e-button :text "Step")
+      (gui:e-button :text "Continue")))
+    (gui:vbox
+     #+nil
+     (gui:hbox
+      (gui:e-collapsable
+       (cpu-regs-e :cpu)
+       :text "CPU")
+      (gui:e-collapsable
+       (prev-cpu-regs-e)
+       :text "Prev CPU"))
+     (gui:hbox
+      (gui:e-collapsable
+       ;; Stack
+       (apply #'gui:vbox
+	      (when (> *sp* #xff80)
+		(let ((adr *sp*))
+		  (loop while (< adr #xfffe)
+		     collecting
+		       (gui:e-text
+			:text
+			(format nil "~2d: ~A"
+				(truncate (- #xfffe (+ adr 2)) 2)
+				(byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
+		     do
+		       (incf adr 2)))))
+       :text "Stack")
+      (gui:e-collapsable
+       (apply #'gui:vbox
+	      (mapcar (lambda (u)
+			(gui:e-text :text (format nil "x~4,'0x: ~A"
+						  (car u)
+						  (byte-text (cdr u) nil *reg-base*))))
+		      *memory-updates*))
+       :text "Memory Updates"))
+     (gui:e-radio-button '("Hex" "Bin" "Dec")
+			 :id :reg-base
+			 :selected-option-idx
+			 (position *reg-base* *reg-bases*))))
+   #+nil
+   (selected-disassembled-instr-e)))
 
 (defvar *gui*)
 (defun main-loop! (*gui*)
