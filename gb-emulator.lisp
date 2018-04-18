@@ -1421,10 +1421,12 @@
   (setq *gui-state*
 	(modest-gui:gui-state-assets-replaced! *gui-state*)))
 
+;; TODO: This updates too slowly...
+
 (defun selected-state-idx ()
   (when (plusp (length *machine-states*))
     (let ((instrs-e (gui:find-element (gui:element *gui*) :instructions)))
-      (gui:selected-option-idx instrs-e))))
+      (print (gui:selected-option-idx instrs-e)))))
 (defun selected-state ()
   (let ((idx (selected-state-idx)))
     (when idx
@@ -1750,32 +1752,34 @@
 
 #+nil
 (progn
-  
-  (on-change :reg-base (event)
-    (setq *reg-base* (nth
-		      (modest-gui:selected-option-idx
-		       (modest-gui:element event))
-		      *reg-bases*))
-    (replace-cpu-elements!))
-
   (on-change :disassembled-instrs ()
     (restore-state! (cdr (selected-state)))
     
     (gui-state-replace-element! (selected-disassembled-instr-e))
     (replace-cpu-elements!)))
 
+(defun instruction-options-texts ()
+  (mapcar
+   (lambda (state)
+     (format nil "~&#x~4,'0x: ~A"
+	     (car state)
+	     (typecase (disassembled-instr (cdr state))
+	       (disassembled-instr (name (disassembled-instr (cdr state))))
+	       (t "Not Implemented"))))
+   *machine-states*))
+
 (defun e-instructions ()
   (gui:e-radio-button
-   (mapcar
-    (lambda (state)
-      (format nil "~&#x~4,'0x: ~A"
-	      (car state)
-	      (typecase (disassembled-instr (cdr state))
-		(disassembled-instr (name (disassembled-instr (cdr state))))
-		(t "Not Implemented"))))
-    *machine-states*)
+   (instruction-options-texts)
    :orientation :vertical
-   :id :instructions))
+   :id :instructions
+   :changed-fn
+   (lambda (e)
+     (declare (ignore e))
+     (restore-state! (cdr (selected-state)))
+
+     (replace-disassembled-instr!)
+     (replace-cpu-es!))))
 
 (defun e-memory-updates ()
   (gui:v-layout
@@ -1807,8 +1811,9 @@
   (gui:replace-element!
    :instructions
    (lambda (e)
-     (declare (ignore e))
-     (gui:create-element! (e-instructions)))))
+     (gui:create-element!
+      (gui:copy-radio-button-element
+       e :option-texts (instruction-options-texts))))))
 
 (defun replace-e-disassembled-instr! ()
   (gui:replace-element!
