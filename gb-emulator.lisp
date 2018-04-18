@@ -1421,12 +1421,10 @@
   (setq *gui-state*
 	(modest-gui:gui-state-assets-replaced! *gui-state*)))
 
-;; TODO: This updates too slowly...
-
+(defvar *selected-machine-state-idx*)
 (defun selected-state-idx ()
   (when (plusp (length *machine-states*))
-    (let ((instrs-e (gui:find-element (gui:element *gui*) :instructions)))
-      (print (gui:selected-option-idx instrs-e)))))
+    *selected-machine-state-idx*))
 (defun selected-state ()
   (let ((idx (selected-state-idx)))
     (when idx
@@ -1436,7 +1434,7 @@
     (when (and idx (< idx (1- (length *machine-states*))))
       (machine-state (1+ idx)))))
 (defun machine-state (idx)
-  (nth idx (reverse *machine-states*)))
+  (nth idx *machine-states*))
 
 (defun selected-disassembled-instr-e ()
   (let ((state (selected-state)))
@@ -1750,16 +1748,6 @@
 			(disassembled-instr (cdr state)))
 		       "")))))
 
-;; TODO: hook up events
-
-#+nil
-(progn
-  (on-change :disassembled-instrs ()
-    (restore-state! (cdr (selected-state)))
-    
-    (gui-state-replace-element! (selected-disassembled-instr-e))
-    (replace-cpu-elements!)))
-
 (defun instruction-options-texts ()
   (mapcar
    (lambda (state)
@@ -1777,7 +1765,7 @@
    :id :instructions
    :changed-fn
    (lambda (e)
-     (declare (ignore e))
+     (setq *selected-machine-state-idx* (gui:selected-option-idx (gui:element e)))
      (restore-state! (cdr (selected-state)))
 
      (replace-disassembled-instr!)
@@ -1813,6 +1801,7 @@
   (gui:replace-element!
    :instructions
    (lambda (e)
+     (setq *selected-machine-state-idx* (gui:selected-option-idx e))
      (gui:create-element!
       (gui:copy-radio-button-element
        e :option-texts (instruction-options-texts))))))
@@ -1838,6 +1827,30 @@
 				 (declare (ignore e))
 				 (gui:create-element! (e-stack)))))
 
+(defun e-step-button ()
+  (gui:e-button
+   :text "Step"
+   :clicked-fn (lambda (e)
+		 (declare (ignore e))
+		 (let ((pc *pc*))
+		   (exec-instr!)
+		   (push-state! pc))
+
+		 (replace-e-instructions!)
+		 (replace-e-disassembled-instr!)
+		 (replace-cpu-es!))))
+
+(defun e-continue-button ()
+  (gui:e-button
+   :text "Continue"
+   :clicked-fn (lambda (e)
+		 (declare (ignore e))
+		 (continue-exec-instr!)
+
+		 (replace-e-instructions!)
+		 (replace-e-disassembled-instr!)
+		 (replace-cpu-es!))))
+
 (defun gui ()
   (gui:vbox
    (gui:hbox
@@ -1852,34 +1865,16 @@
       :text "Disassembly"
       :collapsed? nil)
      (gui:hbox
-      (gui:e-button
-       :text "Step"
-       :clicked-fn (lambda (e)
-		     (declare (ignore e))
-		     (let ((pc *pc*))
-		       (exec-instr!)
-		       (push-state! pc))
-
-		     (replace-e-instructions!)
-		     (replace-e-disassembled-instr!)
-		     (replace-cpu-es!)))
-      (gui:e-button
-       :text "Continue"
-       :clicked-fn (lambda (e)
-		     (declare (ignore e))
-		     (continue-exec-instr!)
-
-		     (replace-e-instructions!)
-		     (replace-e-disassembled-instr!)
-		     (replace-cpu-es!)))))
+      (e-step-button)
+      (e-continue-button)))
     (gui:vbox
      (gui:hbox
       (gui:e-collapsable
-       (e-cpu-regs :cpu)
-       :text "CPU")
-      (gui:e-collapsable
        (e-prev-cpu-regs)
-       :text "Prev CPU"))
+       :text "Prev CPU")
+      (gui:e-collapsable
+       (e-cpu-regs :cpu)
+       :text "CPU"))
      (gui:hbox
       (gui:e-collapsable
        ;; Stack
