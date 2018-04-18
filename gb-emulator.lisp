@@ -1571,7 +1571,8 @@
    (gui:hbox
     (gui:vbox
      ;; Disassembly Box
-     ;; TODO: HeisenBug with scroll-view mouse pos
+     ;; TODO: HeisenBug with scroll-view mouse pos,
+     ;; goes away when you recompile simple-gui...
      (gui:e-collapsable
       (gui:vbox
        (gui:e-scroll-view
