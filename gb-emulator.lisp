@@ -1423,9 +1423,8 @@
 
 (defun selected-state-idx ()
   (when (plusp (length *machine-states*))
-    (let ((instrs-e (modest-gui:find-element (gui *gui-state*)
-					     :disassembled-instrs)))
-      (modest-gui:selected-idx instrs-e))))
+    (let ((instrs-e (gui:find-element (gui:element *gui*) :instructions)))
+      (gui:selected-option-idx instrs-e))))
 (defun selected-state ()
   (let ((idx (selected-state-idx)))
     (when idx
@@ -1705,33 +1704,36 @@
 	       (modest-drawing:red)
 	       (modest-drawing:black)))))
 
-(defun e-cpu-regs ()
+(defun e-cpu-regs (id)
   ;; Create element
-  (gui:vbox
-   (e-reg-text :pc *pc* t :hex)
-   (e-reg-text :sp *sp* t :hex)
-   (e-flags)
-   (gui:hbox
-    (e-reg-text :a *a* nil *reg-base*)
-    (e-reg-text :af (af) t *reg-base*))
-   (gui:hbox
-    (e-reg-text :b *b* nil *reg-base*)
-    (e-reg-text :bc (bc) t *reg-base*))
-   (e-reg-text :c *c* nil *reg-base*)
-   (gui:hbox
-    (e-reg-text :d *d* nil *reg-base*)
-    (e-reg-text :de (de) t *reg-base*))
-   (e-reg-text :e *e* nil *reg-base*)
-   (gui:hbox
-    (e-reg-text :h *h* nil *reg-base*)
-    (e-reg-text :hl (hl) t *reg-base*))
-   (e-reg-text :l *l* nil *reg-base*)))
+  (gui:v-layout
+   :id id
+   :elements
+   (list
+    (e-reg-text :pc *pc* t :hex)
+    (e-reg-text :sp *sp* t :hex)
+    (e-flags)
+    (gui:hbox
+     (e-reg-text :a *a* nil *reg-base*)
+     (e-reg-text :af (af) t *reg-base*))
+    (gui:hbox
+     (e-reg-text :b *b* nil *reg-base*)
+     (e-reg-text :bc (bc) t *reg-base*))
+    (e-reg-text :c *c* nil *reg-base*)
+    (gui:hbox
+     (e-reg-text :d *d* nil *reg-base*)
+     (e-reg-text :de (de) t *reg-base*))
+    (e-reg-text :e *e* nil *reg-base*)
+    (gui:hbox
+     (e-reg-text :h *h* nil *reg-base*)
+     (e-reg-text :hl (hl) t *reg-base*))
+    (e-reg-text :l *l* nil *reg-base*))))
 
 (defun e-prev-cpu-regs ()
   (let ((ms (cdr (previous-state))))
     (if ms
 	(with-machine-state ms
-	  (e-cpu-regs))
+	  (e-cpu-regs :prev-cpu))
 	(gui:e-text :text "--" :id :prev-cpu))))
 
 (defun e-selected-disassembled-instr ()
@@ -1744,6 +1746,69 @@
 			(disassembled-instr (cdr state)))
 		       "")))))
 
+;; TODO: hook up events
+
+#+nil
+(progn
+  (on-click :continue-button
+    (continue-exec-instr!)
+
+    (gui-state-replace-element! (instruction-e-list))
+    (gui-state-replace-element! (selected-disassembled-instr-e))
+    (replace-cpu-elements!))
+
+  (on-change :reg-base (event)
+    (setq *reg-base* (nth
+		      (modest-gui:selected-option-idx
+		       (modest-gui:element event))
+		      *reg-bases*))
+    (replace-cpu-elements!))
+
+  (on-change :disassembled-instrs ()
+    (restore-state! (cdr (selected-state)))
+    
+    (gui-state-replace-element! (selected-disassembled-instr-e))
+    (replace-cpu-elements!)))
+
+(defun e-instructions ()
+  (gui:e-radio-button
+   (mapcar
+    (lambda (state)
+      (format nil "~&#x~4,'0x: ~A"
+	      (car state)
+	      (typecase (disassembled-instr (cdr state))
+		(disassembled-instr (name (disassembled-instr (cdr state))))
+		(t "Not Implemented"))))
+    *machine-states*)
+   :orientation :vertical
+   :id :instructions))
+
+(defun e-memory-updates ()
+  (gui:v-layout
+   :id :memory-updates
+   :elements
+   (mapcar (lambda (u)
+	     (gui:e-text :text (format nil "x~4,'0x: ~A"
+				       (car u)
+				       (byte-text (cdr u) nil *reg-base*))))
+	   *memory-updates*)))
+
+(defun e-stack ()
+  (gui:v-layout
+   :id :stack
+   :elements
+   (when (> *sp* #xff80)
+     (let ((adr *sp*))
+       (loop while (< adr #xfffe)
+	  collecting
+	    (gui:e-text
+	     :text
+	     (format nil "~2d: ~A"
+		     (truncate (- #xfffe (+ adr 2)) 2)
+		     (byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
+	  do
+	    (incf adr 2))))))
+
 (defun gui ()
   (gui:vbox
    (gui:hbox
@@ -1753,26 +1818,42 @@
       (gui:vbox
        (gui:e-scroll-view
 	(gui:e-framed
-	 (gui:e-radio-button
-	  (mapcar
-	   (lambda (state)
-	     (format nil "~&#x~4,'0x: ~A"
-		     (car state)
-		     (typecase (disassembled-instr (cdr state))
-		       (disassembled-instr (name (disassembled-instr (cdr state))))
-		       (t "Not Implemented"))))
-	   *machine-states*)
-	  :orientation :vertical))
+	 (e-instructions))
 	:dims (make-v 200 240)))
       :text "Disassembly"
       :collapsed? nil)
      (gui:hbox
-      (gui:e-button :text "Step")
+      (gui:e-button
+       :text "Step"
+       :clicked-fn (lambda (e)
+		     (declare (ignore e))
+		     (let ((pc *pc*))
+		       (exec-instr!)
+		       (push-state! pc))
+
+		     (gui:replace-element! :instructions (lambda (e)
+							   (declare (ignore e))
+							   (gui:create-element! (e-instructions))))
+		     (gui:replace-element! :disassembled-instr-text (lambda (e)
+								      (declare (ignore e))
+								      (gui:create-element! (e-selected-disassembled-instr))))
+		     (gui:replace-element! :cpu (lambda (e)
+						  (declare (ignore e))
+						  (gui:create-element! (e-cpu-regs :cpu))))
+		     (gui:replace-element! :prev-cpu (lambda (e)
+						       (declare (ignore e))
+						       (gui:create-element! (e-prev-cpu-regs))))
+		     (gui:replace-element! :memory-updates (lambda (e)
+							     (declare (ignore e))
+							     (gui:create-element! (e-memory-updates))))
+		     (gui:replace-element! :stack (lambda (e)
+						    (declare (ignore e))
+						    (gui:create-element! (e-stack))))))
       (gui:e-button :text "Continue")))
     (gui:vbox
      (gui:hbox
       (gui:e-collapsable
-       (e-cpu-regs)
+       (e-cpu-regs :cpu)
        :text "CPU")
       (gui:e-collapsable
        (e-prev-cpu-regs)
@@ -1780,28 +1861,10 @@
      (gui:hbox
       (gui:e-collapsable
        ;; Stack
-       (gui:v-layout
-	:elements
-	(when (> *sp* #xff80)
-	  (let ((adr *sp*))
-	    (loop while (< adr #xfffe)
-	       collecting
-		 (gui:e-text
-		  :text
-		  (format nil "~2d: ~A"
-			  (truncate (- #xfffe (+ adr 2)) 2)
-			  (byte-text (u16 (mem-byte (1+ adr)) (mem-byte adr)) t :hex)))
-	       do
-		 (incf adr 2)))))
+       (e-stack)
        :text "Stack")
       (gui:e-collapsable
-       (gui:v-layout
-	:elements
-	(mapcar (lambda (u)
-		  (gui:e-text :text (format nil "x~4,'0x: ~A"
-					    (car u)
-					    (byte-text (cdr u) nil *reg-base*))))
-		*memory-updates*))
+       (e-memory-updates)
        :text "Memory Updates"))
      (gui:e-radio-button '("Hex" "Bin" "Dec")
 			 :id :reg-base
@@ -1810,15 +1873,12 @@
    (e-selected-disassembled-instr)))
 
 (defvar *gui*)
-(defun main-loop! (*gui*)
-  (setq *affected-regs* ()
-	*affected-flags* ()
-	*memory-updates* ())
+(defun main-loop! (gui)
+  (setq *gui* gui)
   (init!)
   ;; DEBUG: set the v-blank
   (mem-byte-set! #xff44 #x90)
 
-  (setq *machine-states* ())
   (load-rom! *tetris-filename*)
   (gui:main-loop (gui:*input* frames)
     (setq *gui* (gui:update-gui! *gui*))
@@ -1834,6 +1894,11 @@
 (defun main-simple-gui! ()
   (let ((gui:*window-title* "GameBoy")
 	(gui:*window-dims* (make-v 1072 716)))
+    (setq *affected-regs* ()
+	  *affected-flags* ()
+	  *memory-updates* ()
+	  *machine-states* ())
+
     (gui:with-init
       (bracket (gui:gui! (gui))
 	       #'main-loop!
