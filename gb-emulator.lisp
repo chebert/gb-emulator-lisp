@@ -1809,6 +1809,34 @@
 	  do
 	    (incf adr 2))))))
 
+(defun replace-e-instructions! ()
+  (gui:replace-element!
+   :instructions
+   (lambda (e)
+     (declare (ignore e))
+     (gui:create-element! (e-instructions)))))
+
+(defun replace-e-disassembled-instr! ()
+  (gui:replace-element!
+   :disassembled-instr-text
+   (lambda (e)
+     (declare (ignore e))
+     (gui:create-element! (e-selected-disassembled-instr)))))
+
+(defun replace-cpu-es! ()
+  (gui:replace-element! :cpu (lambda (e)
+			       (declare (ignore e))
+			       (gui:create-element! (e-cpu-regs :cpu))))
+  (gui:replace-element! :prev-cpu (lambda (e)
+				    (declare (ignore e))
+				    (gui:create-element! (e-prev-cpu-regs))))
+  (gui:replace-element! :memory-updates (lambda (e)
+					  (declare (ignore e))
+					  (gui:create-element! (e-memory-updates))))
+  (gui:replace-element! :stack (lambda (e)
+				 (declare (ignore e))
+				 (gui:create-element! (e-stack)))))
+
 (defun gui ()
   (gui:vbox
    (gui:hbox
@@ -1831,25 +1859,18 @@
 		       (exec-instr!)
 		       (push-state! pc))
 
-		     (gui:replace-element! :instructions (lambda (e)
-							   (declare (ignore e))
-							   (gui:create-element! (e-instructions))))
-		     (gui:replace-element! :disassembled-instr-text (lambda (e)
-								      (declare (ignore e))
-								      (gui:create-element! (e-selected-disassembled-instr))))
-		     (gui:replace-element! :cpu (lambda (e)
-						  (declare (ignore e))
-						  (gui:create-element! (e-cpu-regs :cpu))))
-		     (gui:replace-element! :prev-cpu (lambda (e)
-						       (declare (ignore e))
-						       (gui:create-element! (e-prev-cpu-regs))))
-		     (gui:replace-element! :memory-updates (lambda (e)
-							     (declare (ignore e))
-							     (gui:create-element! (e-memory-updates))))
-		     (gui:replace-element! :stack (lambda (e)
-						    (declare (ignore e))
-						    (gui:create-element! (e-stack))))))
-      (gui:e-button :text "Continue")))
+		     (replace-e-instructions!)
+		     (replace-e-disassembled-instr!)
+		     (replace-cpu-es!)))
+      (gui:e-button
+       :text "Continue"
+       :clicked-fn (lambda (e)
+		     (declare (ignore e))
+		     (continue-exec-instr!)
+
+		     (replace-e-instructions!)
+		     (replace-e-disassembled-instr!)
+		     (replace-cpu-es!)))))
     (gui:vbox
      (gui:hbox
       (gui:e-collapsable
