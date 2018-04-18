@@ -1750,13 +1750,7 @@
 
 #+nil
 (progn
-  (on-click :continue-button
-    (continue-exec-instr!)
-
-    (gui-state-replace-element! (instruction-e-list))
-    (gui-state-replace-element! (selected-disassembled-instr-e))
-    (replace-cpu-elements!))
-
+  
   (on-change :reg-base (event)
     (setq *reg-base* (nth
 		      (modest-gui:selected-option-idx
@@ -1890,7 +1884,13 @@
      (gui:e-radio-button '("Hex" "Bin" "Dec")
 			 :id :reg-base
 			 :selected-option-idx
-			 (position *reg-base* *reg-bases*))))
+			 (position *reg-base* *reg-bases*)
+			 :changed-fn
+			 (lambda (e)
+			   (setq *reg-base*
+				 (nth (gui:selected-option-idx (gui:element e))
+				      *reg-bases*))
+			   (replace-cpu-es!)))))
    (e-selected-disassembled-instr)))
 
 (defvar *gui*)
