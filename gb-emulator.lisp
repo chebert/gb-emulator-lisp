@@ -1430,11 +1430,13 @@
 (defun selected-state ()
   (let ((idx (selected-state-idx)))
     (when idx
-      (nth idx *machine-states*))))
+      (machine-state idx))))
 (defun previous-state ()
   (let ((idx (selected-state-idx)))
     (when (and idx (< idx (1- (length *machine-states*))))
-      (nth (1+ idx) *machine-states*))))
+      (machine-state (1+ idx)))))
+(defun machine-state (idx)
+  (nth idx (reverse *machine-states*)))
 
 (defun selected-disassembled-instr-e ()
   (let ((state (selected-state)))
