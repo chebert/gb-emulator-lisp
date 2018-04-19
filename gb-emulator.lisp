@@ -1631,7 +1631,7 @@
       (mapc #'modest:draw-drawing! drawings))
     (ssdl:display)))
 
-(defun main-simple-gui! ()
+(defun main! ()
   (let ((gui:*window-title* "GameBoy")
 	(gui:*window-dims* (make-v 1072 716)))
     (init!)
