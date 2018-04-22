@@ -1349,31 +1349,6 @@
 ;; TODO: apply scroll x,y to tile-map (draw a window)
 ;; TODO: draw window
 
-(defun pixels (w h color)
-  (let ((arr (make-array (* w h 4)
-			 :initial-element 0
-			 :element-type '(unsigned-byte 8))))
-    (color-pixels! arr w h color)
-    arr))
-
-(defun color-pixels! (arr w h color)
-  (let ((r (modest-drawing:r color))
-	(b (modest-drawing:b color))
-	(g (modest-drawing:g color))
-	(a (modest-drawing:a color)))
-    (loop for i below (* w h)
-       do
-	 (setf (aref arr (+ 0 (* i 4))) r)
-	 (setf (aref arr (+ 1 (* i 4))) g)
-	 (setf (aref arr (+ 2 (* i 4))) b)
-	 (setf (aref arr (+ 3 (* i 4))) a))))
-
-(defun pixels-asset (background-pixels)
-  (modest-drawing:make-image-asset
-   :background
-   (ssdl:make-texture-from-pixels *bg-size* *bg-size* background-pixels)
-   nil))
-
 (defparameter *colors* (vector (modest-drawing:grey 0)
 			       (modest-drawing:grey 86)
 			       (modest-drawing:grey 171)
@@ -1570,9 +1545,6 @@
   (gui:vbox
    (gui:hbox
     (gui:vbox
-     ;; Disassembly Box
-     ;; TODO: HeisenBug with scroll-view mouse pos,
-     ;; goes away when you recompile simple-gui...
      (gui:e-collapsable
       (gui:vbox
        (gui:e-scroll-view
@@ -1611,11 +1583,16 @@
 				 (nth (gui:selected-option-idx (gui:element e))
 				      *reg-bases*))
 			   (replace-cpu-es!)))))
-   (e-selected-disassembled-instr)))
+   (e-selected-disassembled-instr)
+   (gui:hbox
+    (gui:e-texture *bg-texture*)
+    (gui:e-text :text "  ")
+    (gui:e-texture *tiles-texture*))))
 
+(defvar *bg-texture*)
+(defvar *tiles-texture*)
 (defvar *gui*)
-(defun main-loop! (gui)
-  (setq *gui* gui)
+(defun main-loop! ()
   ;; DEBUG: set the v-blank
   (mem-byte-set! #xff44 #x90)
 
@@ -1642,6 +1619,12 @@
 	  *machine-states* ())
 
     (gui:with-init
-      (bracket (gui:gui! (gui))
-	       #'main-loop!
-	       #'gui:destroy-gui!))))
+      (let* ((*bg-texture* (ssdl:make-texture 256 256))
+	     (*tiles-texture* (ssdl:make-texture 256 256))
+	     (gui (gui:gui! (gui))))
+	(when gui
+	  (setq *gui* gui)
+	  (unwind-protect (main-loop!)
+	    (gui:destroy-gui! *gui*)
+	    (ssdl:free-texture *bg-texture*)
+	    (ssdl:free-texture *tiles-texture*)))))))
