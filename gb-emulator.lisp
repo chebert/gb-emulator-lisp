@@ -244,6 +244,8 @@
 (defun bios-run? ()
   (= 1 (aref *mmap-i/o* #x50)))
 
+(defparameter *video-ram-start* #x8000)
+
 (defun mem-byte (addr)
   (cond
     ((and (not (bios-run?)) (< addr #x100))
@@ -256,7 +258,7 @@
      (aref *bank1-rom* (- addr #x4000)))
     ((< addr #xa000)
      ;; vram
-     (aref *video-ram* (- addr #x8000)))
+     (aref *video-ram* (- addr *video-ram-start*)))
     ((< addr #xc000)
      ;; eram
      (aref *ext-ram* (- addr #xa000)))
@@ -289,7 +291,9 @@
      (setf (aref *bank1-rom* (- addr #x4000)) byte))
     ((< addr #xa000)
      ;; vram
-     (setf (aref *video-ram* (- addr #x8000)) byte))
+     (let ((addr2 (- addr #x8000)))
+       (setf (aref *video-ram* addr2) byte)
+       (set-tile-data-pixels! addr2)))
     ((< addr #xc000)
      ;; eram
      (setf (aref *ext-ram* (- addr #xa000)) byte))
@@ -1541,6 +1545,27 @@
 		 (replace-e-disassembled-instr!)
 		 (replace-cpu-es!))))
 
+(defun e-tile-texture ()
+  (gui:vbox
+   (gui:e-texture *tile-texture*)
+   (gui:e-number-entry
+    :id :tile-number-entry
+    :changed-fn
+    (lambda (e)
+      (let* ((num (gui:number-entry-number (gui:element e)))
+	     (num2 (clamp num 0 352)))
+	(ssdl:render-to-texture *tile-texture*)
+	(let* ((tile-idx num2)
+	       (tile-x (mod tile-idx (w *tiles-texture-tile-dims*)))
+	       (tile-y (floor tile-idx (w *tiles-texture-tile-dims*)))
+	       (x (* tile-x 8))
+	       (y (* tile-y 8)))
+	  (ssdl:draw-texture *tiles-texture*
+			     x y 8 8
+			     0 0 64 64
+			     nil nil))
+	(ssdl:render-to-window))))))
+
 (defun gui ()
   (gui:vbox
    (gui:hbox
@@ -1587,10 +1612,12 @@
    (gui:hbox
     (gui:e-texture *bg-texture*)
     (gui:e-text :text "  ")
-    (gui:e-texture *tiles-texture*))))
+    (gui:e-texture *tiles-texture*)
+    (e-tile-texture))))
 
 (defvar *bg-texture*)
 (defvar *tiles-texture*)
+(defvar *tile-texture*)
 (defvar *gui*)
 (defun main-loop! ()
   ;; DEBUG: set the v-blank
@@ -1608,6 +1635,54 @@
       (mapc #'modest:draw-drawing! drawings))
     (ssdl:display)))
 
+(defvar *tiles-texture-pixels*)
+(defparameter *tiles-texture-tile-dims* (make-v 16 22))
+(defparameter *tiles-texture-dims* (multiply 8 *tiles-texture-tile-dims*))
+
+(defun byte-idx->tiles-texture-idx (idx)
+  (let* ((tile-row-idx (floor idx 2))
+	 (row (mod tile-row-idx 8))
+	 (tile-idx (floor tile-row-idx 8))
+	 (tile-x (mod tile-idx (w *tiles-texture-tile-dims*)))
+	 (tile-y (floor tile-idx (w *tiles-texture-tile-dims*)))
+	 (y (+ row (* tile-y 8)))
+	 (x (* tile-x 8)))
+    (+ x (* y (w *tiles-texture-dims*)))))
+
+;; Tile:
+;; 0  8
+;; 1  9
+;; 2  10
+;; ...
+;; 7  11
+
+(defun tile-pixel-color (byte1 byte2 idx)
+  (modest:red))
+(defun tile-row-pixels (byte-idx)
+  (let* ((byte-idx2 (if (oddp byte-idx)
+			(1- byte-idx)
+			byte-idx))
+	 (byte1 (mem-byte (+ *video-ram-start* byte-idx2)))
+	 (byte2 (mem-byte (+ *video-ram-start* byte-idx2 1)))
+	 (pixels (make-array (* 8 4) :element-type '(unsigned-byte 8))))
+    (loop for idx below 8 do
+       ;; NOTE: Todo
+	 (let ((color (tile-pixel-color byte1 byte2 idx)))
+	   (setf (aref pixels (+ (* idx 4) 0)) (r color))
+	   (setf (aref pixels (+ (* idx 4) 1)) (g color))
+	   (setf (aref pixels (+ (* idx 4) 2)) (b color))
+	   (setf (aref pixels (+ (* idx 4) 3)) (a color))))
+    pixels))
+
+(defun set-tile-data-pixels! (byte-idx)
+  (let* ((tiles-texture-idx (byte-idx->tiles-texture-idx byte-idx))
+	 (tile-row-pixels (tile-row-pixels byte-idx)))
+    (format t "~&Setting idx: ~A" byte-idx)
+    (setf (subseq *tiles-texture-pixels* tiles-texture-idx) tile-row-pixels)
+    (ssdl:update-streaming-texture *tiles-texture*
+				   (h *tiles-texture-dims*)
+				   *tiles-texture-pixels*)))
+
 (defun main! ()
   (let ((gui:*window-title* "GameBoy")
 	(gui:*window-dims* (make-v 1072 716)))
@@ -1616,15 +1691,24 @@
     (setq *affected-regs* ()
 	  *affected-flags* ()
 	  *memory-updates* ()
-	  *machine-states* ())
+	  *machine-states* ()
+	  *tiles-texture-pixels* (make-array (* (x *tiles-texture-dims*)
+						(y *tiles-texture-dims*)
+						4)
+					     :element-type '(unsigned-byte 8)))
 
     (gui:with-init
-      (let* ((*bg-texture* (ssdl:make-texture 256 256))
-	     (*tiles-texture* (ssdl:make-texture 256 256))
-	     (gui (gui:gui! (gui))))
-	(when gui
-	  (setq *gui* gui)
-	  (unwind-protect (main-loop!)
-	    (gui:destroy-gui! *gui*)
-	    (ssdl:free-texture *bg-texture*)
-	    (ssdl:free-texture *tiles-texture*)))))))
+      (with-resource (*bg-texture*
+		      (ssdl:make-texture 256 256)
+		      (ssdl:free-texture *bg-texture*))
+	(with-resource (*tiles-texture*
+			(ssdl:make-streaming-texture (x *tiles-texture-dims*)
+						     (y *tiles-texture-dims*))
+			(ssdl:free-texture *tiles-texture*))
+	  (with-resource (*tile-texture*
+			  (ssdl:make-texture 64 64)
+			  (ssdl:free-texture *tile-texture*))
+	    (with-resource (*gui*
+			    (gui:gui! (gui))
+			    (gui:destroy-gui! *gui*))
+	      (main-loop!))))))))
