@@ -293,8 +293,12 @@
      ;; vram
      (let ((addr2 (- addr #x8000)))
        (setf (aref *video-ram* addr2) byte)
-       (when (< addr #x9800)
-	 (set-tile-data-pixels! addr2))))
+       (cond
+	 ((< addr #x9800)
+	  (update-tile-data! addr2))
+	 (t
+	  ;; update the tile map
+	  ))))
     ((< addr #xc000)
      ;; eram
      (setf (aref *ext-ram* (- addr #xa000)) byte))
@@ -1347,19 +1351,16 @@
 (defparameter *gb-w* 160)
 (defparameter *gb-h* 144)
 
-;; TODO: create 2 textures for drawing pixels
-;; TODO: draw tiles (prev <indices> next) (384 tiles, 32x32 grid, 256x256 pixels)
-;; TODO: draw tile map
-;; TODO: draw sprites
+;; TODO: Draw background tile-map
 ;; TODO: apply scroll x,y to tile-map (draw a window)
 ;; TODO: draw window
+
+;; TODO: simpler way of drawing things to a texture
 
 (defparameter *colors* (vector (modest-drawing:grey 0)
 			       (modest-drawing:grey 86)
 			       (modest-drawing:grey 171)
 			       (modest-drawing:grey 255)))
-
-;; todo: simpler way of drawing things to a texture
 
 (defvar *memory-updates*)
 
@@ -1611,7 +1612,14 @@
 			   (replace-cpu-es!)))))
    (e-selected-disassembled-instr)
    (gui:hbox
-    (gui:e-framed (gui:e-texture *bg-texture*))
+    (gui:e-collapsable
+     (gui:vbox
+      (gui:e-framed (gui:e-texture *bg-texture*))
+      (gui:e-button :text "Refresh"
+		    :clicked-fn (lambda (e)
+				  (declare (ignore e))
+				  (update-tile-map!))))
+     :text "Tile Map")
     (gui:e-collapsable
      (gui:hbox
       (gui:e-framed (gui:e-texture *tiles-texture*))
@@ -1642,12 +1650,17 @@
 (defparameter *tiles-texture-tile-dims* (make-v 16 22))
 (defparameter *tiles-texture-dims* (multiply 8 *tiles-texture-tile-dims*))
 
+(defun tile-idx->tile-pos (tile-idx)
+  (let* ((tile-x (mod tile-idx (w *tiles-texture-tile-dims*)))
+	 (tile-y (floor tile-idx (w *tiles-texture-tile-dims*))))
+    (make-v tile-x tile-y)))
 (defun byte-idx->tiles-texture-idx (idx)
   (let* ((tile-row-idx (floor idx 2))
 	 (row (mod tile-row-idx 8))
 	 (tile-idx (floor tile-row-idx 8))
-	 (tile-x (mod tile-idx (w *tiles-texture-tile-dims*)))
-	 (tile-y (floor tile-idx (w *tiles-texture-tile-dims*)))
+	 (tile-pos (tile-idx->tile-pos tile-idx))
+	 (tile-x (x tile-pos))
+	 (tile-y (y tile-pos))
 	 (y (+ row (* tile-y 8)))
 	 (x (* tile-x 8)))
     (* 4 (+ x (* y (w *tiles-texture-dims*))))))
@@ -1673,13 +1686,29 @@
 	   (setf (aref pixels (+ (* idx 4) 3)) (a color))))
     pixels))
 
-(defun set-tile-data-pixels! (byte-idx)
+(defun update-tile-data! (byte-idx)
   (let* ((tiles-texture-idx (byte-idx->tiles-texture-idx byte-idx))
 	 (tile-row-pixels (tile-row-pixels byte-idx)))
     (setf (subseq *tiles-texture-pixels* tiles-texture-idx) tile-row-pixels)
     (ssdl:update-streaming-texture *tiles-texture*
 				   (h *tiles-texture-dims*)
 				   *tiles-texture-pixels*)))
+
+(defun update-tile-map! ()
+  (ssdl:render-to-texture *bg-texture*)
+  (loop for tile-x below 32 do
+       (loop for tile-y below 32 do
+	    (let* ((i (+ tile-x (* tile-y 32)))
+		   (tile-idx (mem-byte (+ #x9800 i)))
+		   (src-pos (multiply 8 (tile-idx->tile-pos tile-idx)))
+		   
+		   (x (* tile-x 8))
+		   (y (* tile-y 8)))
+	      (ssdl:draw-texture *tiles-texture*
+				 (x src-pos) (y src-pos) 8 8
+				 x y 8 8
+				 nil nil))))
+  (ssdl:render-to-window))
 
 (defun main! ()
   (let ((gui:*window-title* "GameBoy")
@@ -1710,3 +1739,11 @@
 			    (gui:gui! (gui))
 			    (gui:destroy-gui! *gui*))
 	      (main-loop!))))))))
+
+;; TODO:
+;;  threaded execution:
+;;    cpu
+;;    audio
+;;    video
+;;    interupts
+;;  
