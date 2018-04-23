@@ -293,7 +293,8 @@
      ;; vram
      (let ((addr2 (- addr #x8000)))
        (setf (aref *video-ram* addr2) byte)
-       (set-tile-data-pixels! addr2)))
+       (when (< addr #x9800)
+	 (set-tile-data-pixels! addr2))))
     ((< addr #xc000)
      ;; eram
      (setf (aref *ext-ram* (- addr #xa000)) byte))
@@ -1610,10 +1611,12 @@
 			   (replace-cpu-es!)))))
    (e-selected-disassembled-instr)
    (gui:hbox
-    (gui:e-texture *bg-texture*)
-    (gui:e-text :text "  ")
-    (gui:e-texture *tiles-texture*)
-    (e-tile-texture))))
+    (gui:e-framed (gui:e-texture *bg-texture*))
+    (gui:e-collapsable
+     (gui:hbox
+      (gui:e-framed (gui:e-texture *tiles-texture*))
+      (gui:e-framed (e-tile-texture)))
+     :text "Tile"))))
 
 (defvar *bg-texture*)
 (defvar *tiles-texture*)
@@ -1647,17 +1650,14 @@
 	 (tile-y (floor tile-idx (w *tiles-texture-tile-dims*)))
 	 (y (+ row (* tile-y 8)))
 	 (x (* tile-x 8)))
-    (+ x (* y (w *tiles-texture-dims*)))))
-
-;; Tile:
-;; 0  8
-;; 1  9
-;; 2  10
-;; ...
-;; 7  11
+    (* 4 (+ x (* y (w *tiles-texture-dims*))))))
 
 (defun tile-pixel-color (byte1 byte2 idx)
-  (modest:red))
+  (let* ((b1 (logand 1 (ash byte1 (- idx 7))))
+	 (b2 (logand 1 (ash byte2 (- idx 7))))
+
+	 (color-idx (logior b1 (ash b2 1))))
+    (elt *colors* color-idx)))
 (defun tile-row-pixels (byte-idx)
   (let* ((byte-idx2 (if (oddp byte-idx)
 			(1- byte-idx)
@@ -1666,7 +1666,6 @@
 	 (byte2 (mem-byte (+ *video-ram-start* byte-idx2 1)))
 	 (pixels (make-array (* 8 4) :element-type '(unsigned-byte 8))))
     (loop for idx below 8 do
-       ;; NOTE: Todo
 	 (let ((color (tile-pixel-color byte1 byte2 idx)))
 	   (setf (aref pixels (+ (* idx 4) 0)) (r color))
 	   (setf (aref pixels (+ (* idx 4) 1)) (g color))
@@ -1677,7 +1676,6 @@
 (defun set-tile-data-pixels! (byte-idx)
   (let* ((tiles-texture-idx (byte-idx->tiles-texture-idx byte-idx))
 	 (tile-row-pixels (tile-row-pixels byte-idx)))
-    (format t "~&Setting idx: ~A" byte-idx)
     (setf (subseq *tiles-texture-pixels* tiles-texture-idx) tile-row-pixels)
     (ssdl:update-streaming-texture *tiles-texture*
 				   (h *tiles-texture-dims*)
