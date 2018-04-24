@@ -1544,6 +1544,17 @@
 		 (replace-e-disassembled-instr!)
 		 (replace-cpu-es!))))
 
+(defun e-step-frame-button ()
+  (gui:e-button
+   :text "Step Frame"
+   :clicked-fn (lambda (e)
+		 (declare (ignore e))
+		 (format t "~&Overshot by ~A" (step-frame!))
+
+		 (replace-e-instructions!)
+		 (replace-e-disassembled-instr!)
+		 (replace-cpu-es!))))
+
 (defun e-continue-button ()
   (gui:e-button
    :text "Continue"
@@ -1591,6 +1602,7 @@
 
      (gui:hbox
       (e-step-button)
+      (e-step-frame-button)
       (e-continue-button)))
     (gui:vbox
      (gui:hbox
@@ -1763,21 +1775,28 @@
 ;;      v-blank: ~59.73 Hz, 70224 cycles/sync
 ;;      h-sync:  9198 Hz, 456 cycles/sync
 
-(defun draw-frame! ())
+(defun instr-cycle-count ()
+  (cycle-count *disassembled-instr*))
+(defun draw-frame! ()
+  (update-tile-map!))
+(defun ly () (mem-byte #xff44))
+(defun set-ly! (b) (mem-byte-set! #xff44 b))
 (defun incf-ly! ()
-  (let* ((b (1+ (mem-byte #xff44)))
-	 (b2 (if (= b *num-h-blanks*)
+  (let* ((b (1+ (ly))))
+    (set-ly! (if (= b *num-h-blanks*)
 		 0
-		 b)))
-    (mem-byte-set! #xff44 b2)))
+		 b))))
 (defun v-blank! ())
 (defun step-cycles! (n)
-  n)
+  (loop while (> n 0) do
+       (step!)
+       (decf n (instr-cycle-count)))
+  (- n))
 
-(defun step-frame! (&optional (leftovers 0))
+(defun step-frame! (&optional (overshoot 0))
   (draw-frame!)
   (loop for i below 154 do
-       (setq leftovers (step-cycles! (+ *cycles/h-sync* leftovers)))
+       (setq overshoot (step-cycles! (- *cycles/h-sync* overshoot)))
        (incf-ly!)
-       (when (= i *gb-h*) (v-blank!))))
-
+       (when (= i *gb-h*) (v-blank!)))
+  overshoot)
