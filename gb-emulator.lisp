@@ -318,6 +318,11 @@
      ;; zram
      (setf (aref *z-ram* (- addr #xff80)) byte))))
 
+(defun scroll-x ()
+  (mem-byte #xff43))
+(defun scroll-y ()
+  (mem-byte #xff42))
+
 (defun init! ()
   (setq *pc* 0)
   (setq *sp* 0)
@@ -1708,6 +1713,8 @@
 				 (x src-pos) (y src-pos) 8 8
 				 x y 8 8
 				 nil nil))))
+  (ssdl:draw-color 255 0 0 255)
+  (ssdl:draw-rect (scroll-x) (scroll-y) *gb-w* *gb-h* nil)
   (ssdl:render-to-window))
 
 (defun main! ()
