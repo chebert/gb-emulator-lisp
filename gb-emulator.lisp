@@ -1355,6 +1355,7 @@
 (defparameter *bg-size* 256)
 (defparameter *gb-w* 160)
 (defparameter *gb-h* 144)
+(defparameter *gb-scale* 2)
 
 ;; TODO: Draw background tile-map
 ;; TODO: apply scroll x,y to tile-map (draw a window)
@@ -1549,6 +1550,7 @@
    :text "Step Frame"
    :clicked-fn (lambda (e)
 		 (declare (ignore e))
+		 ;; TODO: Handle overshoot
 		 (format t "~&Overshot by ~A" (step-frame!))
 
 		 (replace-e-instructions!)
@@ -1644,10 +1646,12 @@
      (gui:hbox
       (gui:e-framed (gui:e-texture *tiles-texture*))
       (gui:e-framed (e-tile-texture)))
-     :text "Tile"))))
+     :text "Tile")
+    (gui:e-framed (gui:e-texture *gb-texture*)))))
 
 (defvar *bg-texture*)
 (defvar *tiles-texture*)
+(defvar *gb-texture*)
 (defvar *tile-texture*)
 (defvar *gui*)
 (defun main-loop! ()
@@ -1729,7 +1733,7 @@
 				 x y 8 8
 				 nil nil))))
   (ssdl:draw-color 255 0 0 255)
-  (ssdl:draw-rect (scroll-x) (scroll-y) *gb-w* *gb-h* nil)
+  (ssdl:draw-rect (1- (scroll-x)) (1- (scroll-y)) (+ 2 *gb-w*) (+ 2 *gb-h*) nil)
   (ssdl:render-to-window))
 
 (defun main! ()
@@ -1757,10 +1761,14 @@
 	  (with-resource (*tile-texture*
 			  (ssdl:make-texture 64 64)
 			  (ssdl:free-texture *tile-texture*))
-	    (with-resource (*gui*
-			    (gui:gui! (gui))
-			    (gui:destroy-gui! *gui*))
-	      (main-loop!))))))))
+	    (with-resource (*gb-texture*
+			    (ssdl:make-texture (* *gb-w* *gb-scale*)
+					       (* *gb-h* *gb-scale*))
+			    (ssdl:free-texture *gb-texture*))
+	      (with-resource (*gui*
+			      (gui:gui! (gui))
+			      (gui:destroy-gui! *gui*))
+		(main-loop!)))))))))
 
 (defparameter *clock-hz* 4194304)
 (defparameter *cycles/h-sync* 456)
@@ -1778,7 +1786,15 @@
 (defun instr-cycle-count ()
   (cycle-count *disassembled-instr*))
 (defun draw-frame! ()
-  (update-tile-map!))
+  (update-tile-map!)
+  (ssdl:render-to-texture *gb-texture*)
+  (ssdl:draw-texture
+   *bg-texture*
+   (scroll-x) (scroll-y)
+   *gb-w* *gb-h*
+   0 0 (* *gb-w* *gb-scale*) (* *gb-h* *gb-scale*)
+   nil nil)
+  (ssdl:render-to-window))
 (defun ly () (mem-byte #xff44))
 (defun set-ly! (b) (mem-byte-set! #xff44 b))
 (defun incf-ly! ()
