@@ -1302,6 +1302,7 @@
 (defparameter *num-machine-states* 20)
 (defvar *machine-states*)
 (defun push-state! (pc)
+  ;; TODO: Optimize
   (setq *machine-states*
 	(subseq (push (cons pc (save-state)) *machine-states*)
 		0 (min *num-machine-states* (length *machine-states*)))))
