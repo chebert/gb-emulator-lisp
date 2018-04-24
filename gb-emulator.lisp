@@ -1528,14 +1528,17 @@
 				 (declare (ignore e))
 				 (gui:create-element! (e-stack)))))
 
+(defun step! ()
+  (let ((pc *pc*))
+    (exec-instr!)
+    (push-state! pc)))
+
 (defun e-step-button ()
   (gui:e-button
    :text "Step"
    :clicked-fn (lambda (e)
 		 (declare (ignore e))
-		 (let ((pc *pc*))
-		   (exec-instr!)
-		   (push-state! pc))
+		 (step!)
 
 		 (replace-e-instructions!)
 		 (replace-e-disassembled-instr!)
@@ -1747,10 +1750,34 @@
 			    (gui:destroy-gui! *gui*))
 	      (main-loop!))))))))
 
+(defparameter *clock-hz* 4194304)
+(defparameter *cycles/h-sync* 456)
+(defparameter *num-h-blanks* 155)
 ;; TODO:
 ;;  threaded execution:
-;;    cpu
+;;    cpu: 4194304 cycles/second
 ;;    audio
 ;;    video
-;;    interupts
-;;  
+;;    interupts: 
+;;      timers: one of 4096 (1024), 16384 (256), 65536 (64), 262144 (16) Hz (cycles/interrupt)
+;;      v-blank: ~59.73 Hz, 70224 cycles/sync
+;;      h-sync:  9198 Hz, 456 cycles/sync
+
+(defun draw-frame! ())
+(defun incf-ly! ()
+  (let* ((b (1+ (mem-byte #xff44)))
+	 (b2 (if (= b *num-h-blanks*)
+		 0
+		 b)))
+    (mem-byte-set! #xff44 b2)))
+(defun v-blank! ())
+(defun step-cycles! (n)
+  n)
+
+(defun step-frame! (&optional (leftovers 0))
+  (draw-frame!)
+  (loop for i below 154 do
+       (setq leftovers (step-cycles! (+ *cycles/h-sync* leftovers)))
+       (incf-ly!)
+       (when (= i *gb-h*) (v-blank!))))
+
