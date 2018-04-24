@@ -1671,6 +1671,9 @@
   (gui:main-loop (gui:*input* frames)
     (setq *gui* (gui:update-gui! *gui*))
 
+    (when *animating?*
+      (step-frame!))
+
     (modest:draw-color! gui:*color-bg*)
     (ssdl:clear)
     (let ((drawings (modest:drawings-sorted
