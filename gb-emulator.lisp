@@ -1550,8 +1550,7 @@
    :text "Step Frame"
    :clicked-fn (lambda (e)
 		 (declare (ignore e))
-		 ;; TODO: Handle overshoot
-		 (format t "~&Overshot by ~A" (step-frame!))
+		 (step-frame!)
 
 		 (replace-e-instructions!)
 		 (replace-e-disassembled-instr!)
@@ -1647,7 +1646,17 @@
       (gui:e-framed (gui:e-texture *tiles-texture*))
       (gui:e-framed (e-tile-texture)))
      :text "Tile")
-    (gui:e-framed (gui:e-texture *gb-texture*)))))
+    (gui:vbox
+     (gui:e-framed (gui:e-texture *gb-texture*))
+     (e-animating-button)))))
+
+(defvar *animating?*)
+(defun e-animating-button ()
+  (gui:e-radio-button '("Animate" "Stop")
+		      :selected-option-idx 1
+		      :changed-fn
+		      (lambda (e)
+			(setq *animating?* (= 0 (gui:selected-option-idx (gui:element e)))))))
 
 (defvar *bg-texture*)
 (defvar *tiles-texture*)
@@ -1745,6 +1754,8 @@
 	  *affected-flags* ()
 	  *memory-updates* ()
 	  *machine-states* ()
+	  *overshoot-cycles* 0
+	  *animating?* nil
 	  *tiles-texture-pixels* (make-array (* (x *tiles-texture-dims*)
 						(y *tiles-texture-dims*)
 						4)
@@ -1809,10 +1820,10 @@
        (decf n (instr-cycle-count)))
   (- n))
 
-(defun step-frame! (&optional (overshoot 0))
+(defvar *overshoot-cycles*)
+(defun step-frame! ()
   (draw-frame!)
   (loop for i below 154 do
-       (setq overshoot (step-cycles! (- *cycles/h-sync* overshoot)))
+       (setq *overshoot-cycles* (step-cycles! (- *cycles/h-sync* *overshoot-cycles*)))
        (incf-ly!)
-       (when (= i *gb-h*) (v-blank!)))
-  overshoot)
+       (when (= i *gb-h*) (v-blank!))))
