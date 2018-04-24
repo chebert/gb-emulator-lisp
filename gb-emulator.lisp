@@ -1819,7 +1819,7 @@
 (defun v-blank! ())
 (defun step-cycles! (n)
   (loop while (> n 0) do
-       (step!)
+       (exec-instr!)
        (decf n (instr-cycle-count)))
   (- n))
 
