@@ -112,6 +112,17 @@
 ;;  Input
 ;;  Sound
 
+;; threaded execution:
+;;   cpu: 4194304 cycles/second
+;;   audio
+;;   video
+;;   interupts: 
+;;     timers: one of 4096 (1024), 16384 (256), 65536 (64), 262144 (16) Hz (cycles/interrupt)
+;;     v-blank: ~59.73 Hz, 70224 cycles/sync
+;;     h-sync:  9198 Hz, 456 cycles/sync
+
+;; TODO: show frame rate
+
 (defmacro defvars (&body var-names)
   `(progn
      ,@ (mapcar (lambda (v) `(defvar ,v)) var-names)))
@@ -1788,15 +1799,6 @@
 (defparameter *clock-hz* 4194304)
 (defparameter *cycles/h-sync* 456)
 (defparameter *num-h-blanks* 155)
-;; TODO:
-;;  threaded execution:
-;;    cpu: 4194304 cycles/second
-;;    audio
-;;    video
-;;    interupts: 
-;;      timers: one of 4096 (1024), 16384 (256), 65536 (64), 262144 (16) Hz (cycles/interrupt)
-;;      v-blank: ~59.73 Hz, 70224 cycles/sync
-;;      h-sync:  9198 Hz, 456 cycles/sync
 
 (defun instr-cycle-count ()
   (cycle-count *disassembled-instr*))
