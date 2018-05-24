@@ -1199,7 +1199,8 @@
 	       #b00111000))
 (defun alu-op-n! (b1 b2 b3)
   (let* ((size 2)
-	 (n b2)
+	 ;; TODO: Signed or unsigned?
+	 (n (s8 b2))
 	 (alu-op (aref *alu-ops* (extract-bits b1 3 3)))
 	 (cycle-count 8))
     (setq *disassembled-instr*
