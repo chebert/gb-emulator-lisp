@@ -1,9 +1,9 @@
 # gb-emulator
-### _Your Name <your.name@example.com>_
 
-This is a project to do ... something.
+Emulate a GameBoy in Lisp.
+
+So far it just emulates the bios.
 
 ## License
 
-Specify license here
-
+All Rights Reserved.
