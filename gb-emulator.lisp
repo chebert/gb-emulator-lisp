@@ -757,6 +757,23 @@
 
     (set-pc! adr)))
 
+(defun jp-n? (b1)
+  (= b1 #b11000011))
+(defun jp-n! (b1 b2 b3)
+  (let* ((size 2)
+	 (n (s16 (u16 b3 b2)))
+	 (adr n)
+	 (cycle-count 12))
+    (setq *disassembled-instr*
+	  (make-disassembled-instr
+	   :jr
+	   b1 b2 b3
+	   size
+	   cycle-count
+	   (alist :n n :adr adr)))
+
+    (set-pc! adr)))
+
 (defun jr-cond-n? (b1)
   (bits-match? b1
 	       #b00100000
@@ -1272,6 +1289,7 @@
       ;; Jumps/Calls
       ((jr-cond-n? b1) (jr-cond-n! b1 b2 b3))
       ((jr-n? b1) (jr-n! b1 b2 b3))
+      ((jp-n? b1) (jp-n! b1 b2 b3))
       ((call-n? b1) (call-n! b1 b2 b3))
       ((ret? b1) (ret! b1 b2 b3))
 
@@ -1283,7 +1301,7 @@
 			b1))))
   :done)
 
-(defparameter *breakpoints* '(#xf9))
+(defparameter *breakpoints* '(#x101 #x296 #x297 #x298))
 (defun continue-exec-instr! ()
   (let ((done? nil))
     (loop until done?
@@ -1735,6 +1753,14 @@
 	   (setf (aref pixels (+ (* idx 4) 3)) (a color))))
     pixels))
 
+;; TODO: Error
+;; (update-tile-data! 6143)
+(hex 6143)
+;; => "(#x17FF)"
+#x97ff
+(byte-idx->tiles-texture-idx 6143)
+;; => 98272
+
 (defun update-tile-data! (byte-idx)
   (let* ((tiles-texture-idx (byte-idx->tiles-texture-idx byte-idx))
 	 (tile-row-pixels (tile-row-pixels byte-idx)))
@@ -1834,3 +1860,8 @@
        (setq *overshoot-cycles* (step-cycles! (- *cycles/h-sync* *overshoot-cycles*)))
        (incf-ly!)
        (when (= i *gb-h*) (v-blank!))))
+
+;; TODO
+;; some way of stepping through in real time
+;; show memory
+;; reset
