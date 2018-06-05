@@ -1760,9 +1760,6 @@
 #x97ff
 (byte-idx->tiles-texture-idx 6143)
 ;; => 98272
-(tile-row-pixels 6143)
-(/ (length *tiles-texture-pixels*) 4)
-
 
 (defun update-tile-data! (byte-idx)
   (let* ((tiles-texture-idx (byte-idx->tiles-texture-idx byte-idx))
